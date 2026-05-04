@@ -80,7 +80,7 @@ export async function roomsRoutes(app) {
     };
   });
 
-  // Create a room. Optional draft mode with hero_pool (array of hero ids).
+  // Create a room. Optional hero_pool — used by random mode (>= N) or draft mode (>= 2N).
   app.post('/', async (req, reply) => {
     const user = requireAuth(req, reply);
     if (!user) return;
@@ -89,19 +89,20 @@ export async function roomsRoutes(app) {
 
     const isDraft = !!is_draft;
     let poolJson = null;
-    if (isDraft) {
-      const minPool = 2 * PLAYER_COUNT[type];
-      if (!Array.isArray(hero_pool)) return reply.code(400).send({ error: 'invalid_pool' });
+    if (Array.isArray(hero_pool) && hero_pool.length > 0) {
+      const minPool = isDraft ? 2 * PLAYER_COUNT[type] : PLAYER_COUNT[type];
       const pool = [...new Set(hero_pool.map(Number).filter(Number.isFinite))];
       if (pool.length < minPool) {
         return reply.code(400).send({ error: 'pool_too_small', needed: minPool });
       }
-      // Validate hero ids exist
       const db = getDb();
       const placeholders = pool.map(() => '?').join(',');
       const found = db.prepare(`SELECT COUNT(*) AS n FROM heroes WHERE id IN (${placeholders})`).get(...pool).n;
       if (found !== pool.length) return reply.code(400).send({ error: 'unknown_hero_in_pool' });
       poolJson = JSON.stringify(pool);
+    } else if (isDraft) {
+      // Draft requires a pool
+      return reply.code(400).send({ error: 'draft_needs_pool' });
     }
 
     const db = getDb();
@@ -118,6 +119,47 @@ export async function roomsRoutes(app) {
       ).run(roomId, user.tg_id, team);
     });
     return { id: roomId };
+  });
+
+  // Random hero distribution — host-only. Works for any room with a hero_pool set
+  // and not in draft mode. Each player gets a unique random hero from the pool.
+  // Re-rollable: every call reshuffles. Players can still manually pick afterward.
+  app.post('/:id/randomize-heroes', async (req, reply) => {
+    const user = requireAuth(req, reply);
+    if (!user) return;
+    const db = getDb();
+    const id = Number(req.params.id);
+    const room = db.prepare('SELECT * FROM games WHERE id = ?').get(id);
+    if (!room) return reply.code(404).send({ error: 'not_found' });
+    if (room.creator_tg_id !== user.tg_id) return reply.code(403).send({ error: 'not_creator' });
+    if (room.status !== 'open') return reply.code(400).send({ error: 'not_open' });
+    if (room.is_draft) return reply.code(400).send({ error: 'use_draft_flow' });
+    const pool = JSON.parse(room.hero_pool || '[]');
+    if (pool.length === 0) return reply.code(400).send({ error: 'no_pool' });
+
+    const players = db.prepare('SELECT tg_id FROM game_players WHERE game_id = ? ORDER BY rowid').all(id);
+    if (pool.length < players.length) {
+      return reply.code(400).send({ error: 'pool_too_small', need: players.length });
+    }
+    const shuffled = [...pool].sort(() => Math.random() - 0.5);
+    transaction(db, () => {
+      const upd = db.prepare(
+        'UPDATE game_players SET hero_id = ?, hero_custom = NULL WHERE game_id = ? AND tg_id = ?'
+      );
+      players.forEach((p, i) => upd.run(shuffled[i], id, p.tg_id));
+    });
+
+    // Notify each player what they got
+    const heroNames = db.prepare(
+      `SELECT id, name FROM heroes WHERE id IN (${shuffled.slice(0, players.length).map(() => '?').join(',')})`
+    ).all(...shuffled.slice(0, players.length));
+    const nameById = new Map(heroNames.map((h) => [h.id, h.name]));
+    players.forEach((p, i) => {
+      const heroId = shuffled[i];
+      notifyRoom(p.tg_id, `🎰 Тебе выпал герой: ${nameById.get(heroId) || '???'}`, id);
+    });
+
+    return { ok: true };
   });
 
   // Room detail with participants + draft state if applicable
@@ -145,10 +187,13 @@ export async function roomsRoutes(app) {
     const ranks = getTopThreeRanks();
     for (const p of players) p.rank = ranks.get(p.tg_id) ?? null;
     const draft = draftState(room, players);
+    const heroPoolArr = room.hero_pool ? JSON.parse(room.hero_pool) : [];
     return {
       room: {
         ...room,
         is_draft: !!room.is_draft,
+        has_pool: heroPoolArr.length > 0,
+        hero_pool_size: heroPoolArr.length,
         players,
         target_count: PLAYER_COUNT[room.type],
         draft,

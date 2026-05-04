@@ -452,7 +452,8 @@ async function openCreateRoom() {
   ];
   const playerCount = { '1v1': 2, '2v2': 4, ffa3: 3, ffa4: 4 };
   let selected = '1v1';
-  let isDraft = false;
+  // Pick mode: 'manual' (free pick) | 'random' (host raffles from pool) | 'draft' (ban-pick)
+  let pickMode = 'manual';
   // Empty by default — let the host curate what's playable
   let pool = new Set();
   let view = 'main';
@@ -460,9 +461,17 @@ async function openCreateRoom() {
   const modal = openModal({ title: 'Создать комнату', body: '' });
 
   const renderMain = () => {
-    const minPool = 2 * playerCount[selected];
-    const poolOk = pool.size >= minPool;
+    const N = playerCount[selected];
+    const needsPool = pickMode === 'random' || pickMode === 'draft';
+    const minPool = pickMode === 'draft' ? 2 * N : N;
+    const poolOk = !needsPool || pool.size >= minPool;
+    const modes = [
+      { key: 'manual', label: 'Свободный выбор', desc: 'каждый сам берёт героя' },
+      { key: 'random', label: 'Случайная раздача', desc: 'хост раздаёт героев из пула' },
+      { key: 'draft', label: 'Драфт', desc: 'бан-пик по очереди из пула' },
+    ];
     modal.body.innerHTML = `
+      <label style="margin-top:0;">Режим</label>
       <div class="type-grid">
         ${types.map((t) => `
           <div class="type-tile ${t.key === selected ? 'selected' : ''}" data-type="${t.key}">
@@ -471,19 +480,28 @@ async function openCreateRoom() {
           </div>
         `).join('')}
       </div>
-      <label style="display:flex;align-items:center;gap:10px;margin-top:14px;cursor:pointer;text-transform:none;letter-spacing:0;font-size:14px;color:var(--text);">
-        <input type="checkbox" id="draft-toggle" ${isDraft ? 'checked' : ''} style="width:auto;" />
-        <span><b>Драфт-режим</b> · бан-пик из пула, рандом команд (для 2v2)</span>
-      </label>
-      ${isDraft ? `
-        <div style="margin-top:8px;">
+
+      <label style="margin-top:14px;">Выбор героев</label>
+      <div class="radio-group">
+        ${modes.map((m) => `
+          <div class="radio-row ${pickMode === m.key ? 'selected' : ''}" data-mode="${m.key}">
+            <div>
+              <b>${m.label}</b>
+              <div style="font-size:12px;font-weight:400;color:var(--muted);margin-top:2px;">${m.desc}</div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+
+      ${needsPool ? `
+        <div style="margin-top:10px;">
           <button id="pool-edit" class="secondary" style="width:100%;font-size:13px;">
             Пул: ${pool.size} героев · мин ${minPool} ${poolOk ? '✓' : '⚠'}
           </button>
         </div>
       ` : ''}
       <div class="row" style="margin-top:18px;">
-        <button id="create-confirm" style="width:100%;" ${isDraft && !poolOk ? 'disabled' : ''}>
+        <button id="create-confirm" style="width:100%;" ${needsPool && !poolOk ? 'disabled' : ''}>
           Создать
         </button>
       </div>
@@ -491,10 +509,9 @@ async function openCreateRoom() {
     modal.body.querySelectorAll('.type-tile').forEach((el) => {
       el.onclick = () => { selected = el.dataset.type; renderMain(); };
     });
-    modal.body.querySelector('#draft-toggle').onchange = (e) => {
-      isDraft = e.target.checked;
-      renderMain();
-    };
+    modal.body.querySelectorAll('.radio-row[data-mode]').forEach((el) => {
+      el.onclick = () => { pickMode = el.dataset.mode; renderMain(); };
+    });
     const poolBtn = modal.body.querySelector('#pool-edit');
     if (poolBtn) poolBtn.onclick = () => { view = 'pool'; renderPool(); };
 
@@ -502,8 +519,10 @@ async function openCreateRoom() {
       e.target.disabled = true;
       try {
         const body = { type: selected };
-        if (isDraft) {
+        if (pickMode === 'draft') {
           body.is_draft = true;
+          body.hero_pool = [...pool];
+        } else if (pickMode === 'random') {
           body.hero_pool = [...pool];
         }
         const r = await api('/rooms', { method: 'POST', body: JSON.stringify(body) });
@@ -704,6 +723,9 @@ async function renderRoomDetail(id) {
     if (room.type === '2v2' && isCreator && !inDraft && !isTournamentMatch) {
       actionsHtml += `<button id="randomize-teams" class="secondary">🎲 Рандом команд</button>`;
     }
+    if (isCreator && !room.is_draft && room.has_pool && room.players.length > 0) {
+      actionsHtml += `<button id="randomize-heroes" class="secondary">🎰 Раздать героев из пула</button>`;
+    }
     if (room.is_draft && !room.draft?.started && isCreator && full) {
       actionsHtml += `<button id="start-draft">Начать драфт</button>`;
     }
@@ -727,10 +749,14 @@ async function renderRoomDetail(id) {
   let stateText;
   if (room.is_draft && !room.draft?.started) {
     stateText = !full
-      ? `Драфт-режим · пул ${room.draft?.pool?.length || 0} героев · ждём (${room.players.length}/${room.target_count})`
+      ? `Драфт-режим · пул ${room.hero_pool_size || 0} героев · ждём (${room.players.length}/${room.target_count})`
       : `Все собрались — хост запускает драфт`;
   } else if (room.is_draft && draftDone) {
     stateText = 'Драфт завершён · хост может записать результат';
+  } else if (room.has_pool && !room.is_draft) {
+    stateText = !full
+      ? `Случайная раздача · пул ${room.hero_pool_size} героев · ждём (${room.players.length}/${room.target_count})`
+      : (allPicked ? 'Все на месте, можно записывать результат' : 'Все собрались — хост может раздать героев');
   } else if (!full) {
     stateText = `Ждём игроков (${room.players.length}/${room.target_count})`;
   } else if (!allPicked) {
@@ -788,6 +814,20 @@ async function renderRoomDetail(id) {
     } catch (e) {
       alert('Не получилось: ' + e.message);
       randBtn.disabled = false;
+    }
+  };
+
+  const randHeroesBtn = screen.querySelector('#randomize-heroes');
+  if (randHeroesBtn) randHeroesBtn.onclick = async () => {
+    if (!confirm('Раздать случайных героев всем игрокам? Текущий выбор у каждого перезапишется.')) return;
+    randHeroesBtn.disabled = true;
+    try {
+      await api(`/rooms/${id}/randomize-heroes`, { method: 'POST' });
+      tg?.HapticFeedback?.selectionChanged?.();
+      renderRoomDetail(id);
+    } catch (e) {
+      alert('Не получилось: ' + e.message);
+      randHeroesBtn.disabled = false;
     }
   };
 
