@@ -467,11 +467,19 @@ label {
   grid-template-columns: 40px 1fr auto;
   gap: 12px;
   align-items: center;
-  padding: 10px 4px;
+  padding: 10px 8px;
   border-bottom: 1px solid var(--separator);
   cursor: pointer;
+  border-radius: 8px;
+  transition: background-color 0.08s;
+  user-select: none;
+  -webkit-tap-highlight-color: rgba(168, 38, 46, 0.18);
 }
-.hero-row.selected { background: var(--accent-soft); border-radius: 8px; }
+.hero-row:active { background: var(--gold-soft); }
+.hero-row.selected {
+  background: var(--accent-soft);
+  outline: 1px solid var(--accent);
+}
 .hero-name { font-weight: 600; }
 .hero-set { font-size: 11px; color: var(--muted); margin-top: 2px; }
 .hero-winrate {

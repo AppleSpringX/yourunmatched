@@ -513,16 +513,40 @@ async function openHeroPicker(roomId, myPlayer) {
   }
   const { stats } = await api('/me/hero-stats');
   let query = '';
-  let selectedId = myPlayer.hero_id || null;
   let custom = myPlayer.hero_custom || '';
+  const currentId = myPlayer.hero_id || null;
 
   const modal = openModal({ title: 'Выбор героя', body: '' });
 
+  // Tap on a hero row commits the pick immediately and closes the modal.
+  const pickHero = async (heroId) => {
+    try {
+      await api(`/rooms/${roomId}/select-hero`, {
+        method: 'POST',
+        body: JSON.stringify({ hero_id: heroId }),
+      });
+      tg?.HapticFeedback?.selectionChanged?.();
+      modal.close();
+      renderRoomDetail(roomId);
+    } catch (e) { alert('Не получилось: ' + e.message); }
+  };
+
+  const saveCustom = async () => {
+    if (!custom.trim()) { alert('Впиши название колоды или выбери героя из списка'); return; }
+    try {
+      await api(`/rooms/${roomId}/select-hero`, {
+        method: 'POST',
+        body: JSON.stringify({ hero_custom: custom }),
+      });
+      modal.close();
+      renderRoomDetail(roomId);
+    } catch (e) { alert('Не получилось: ' + e.message); }
+  };
+
   const render = () => {
+    const q = query.toLowerCase();
     const filtered = state.heroes.filter((h) =>
-      !query
-      || h.name.toLowerCase().includes(query.toLowerCase())
-      || h.set_name.toLowerCase().includes(query.toLowerCase())
+      !q || h.name.toLowerCase().includes(q) || h.set_name.toLowerCase().includes(q)
     );
     const grouped = {};
     for (const h of filtered) {
@@ -534,11 +558,12 @@ async function openHeroPicker(roomId, myPlayer) {
       ${heroes.map((h) => {
         const s = stats[h.id];
         const wr = s ? Math.round((s.wins / s.games) * 100) : null;
+        const isCurrent = currentId === h.id;
         return `
-          <div class="hero-row ${selectedId === h.id ? 'selected' : ''}" data-id="${h.id}">
+          <div class="hero-row ${isCurrent ? 'selected' : ''}" data-id="${h.id}">
             ${heroAvatar(h.name)}
             <div>
-              <div class="hero-name">${escape(h.name)}</div>
+              <div class="hero-name">${escape(h.name)}${isCurrent ? ' <span class="muted" style="font-weight:400;font-size:11px;">· сейчас</span>' : ''}</div>
               <div class="hero-set">${escape(h.set_name)}</div>
             </div>
             <div class="hero-winrate ${s ? '' : 'dim'}">
@@ -551,39 +576,35 @@ async function openHeroPicker(roomId, myPlayer) {
 
     modal.body.innerHTML = `
       <input class="modal-search" id="hero-search" placeholder="Поиск героя или набора…" value="${escape(query)}" />
+      <p class="muted" style="font-size:12px;margin:0 0 8px;">Тапни на героя — сохранится автоматически.</p>
       <div id="hero-list">${list || '<div class="empty">Никого не нашёл</div>'}</div>
       <div style="border-top:1px solid var(--separator);padding-top:12px;margin-top:14px;">
         <label style="margin-top:0;">…или своя колода (если героя нет в списке)</label>
-        <input id="custom-hero" placeholder="Название" value="${escape(custom)}" />
-      </div>
-      <div class="row" style="margin-top:14px;">
-        <button id="picker-save" style="width:100%;">Сохранить</button>
+        <div class="row" style="gap:8px;">
+          <input id="custom-hero" placeholder="Название" value="${escape(custom)}" style="flex:1;" />
+          <button id="picker-save-custom">Сохранить</button>
+        </div>
       </div>
     `;
     const search = modal.body.querySelector('#hero-search');
-    search.oninput = (e) => {
+    search.addEventListener('input', (e) => {
       query = e.target.value;
+      const sel = e.target.selectionStart;
       render();
-      modal.body.querySelector('#hero-search').focus();
-    };
-    modal.body.querySelectorAll('.hero-row').forEach((el) => {
-      el.onclick = () => { selectedId = Number(el.dataset.id); custom = ''; render(); };
+      const newSearch = modal.body.querySelector('#hero-search');
+      newSearch.focus();
+      try { newSearch.setSelectionRange(sel, sel); } catch {}
     });
-    modal.body.querySelector('#custom-hero').oninput = (e) => {
+    modal.body.querySelectorAll('.hero-row').forEach((el) => {
+      el.addEventListener('click', () => {
+        const heroId = Number(el.dataset.id);
+        pickHero(heroId);
+      });
+    });
+    modal.body.querySelector('#custom-hero').addEventListener('input', (e) => {
       custom = e.target.value;
-      if (custom) selectedId = null;
-    };
-    modal.body.querySelector('#picker-save').onclick = async () => {
-      const body = selectedId ? { hero_id: selectedId } : { hero_custom: custom };
-      try {
-        await api(`/rooms/${roomId}/select-hero`, {
-          method: 'POST',
-          body: JSON.stringify(body),
-        });
-        modal.close();
-        renderRoomDetail(roomId);
-      } catch (e) { alert('Не получилось: ' + e.message); }
-    };
+    });
+    modal.body.querySelector('#picker-save-custom').addEventListener('click', saveCustom);
   };
   render();
 }
