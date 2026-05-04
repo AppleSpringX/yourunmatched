@@ -1,19 +1,24 @@
 /* Unmatched Club — light theme with heraldic red + gold accents on parchment */
 
+/*
+ * Palette: muted warm parchment, NOT bright white.
+ * User feedback: bright cream "по глазам лупит дико" — keep brightness ≤ ~92%,
+ * lower-saturation warm tones, dark text in warm brown (not pure black).
+ */
 :root {
-  --bg: #fef9f0;
-  --bg-tile: #fff5e0;
-  --card: #ffffff;
-  --text: #1a1a1a;
-  --muted: #6b7280;
-  --soft: #4b5563;
-  --accent: #c8102e;
-  --accent-soft: #fde7ea;
-  --gold: #b8860b;
-  --gold-soft: #fff5d6;
-  --separator: rgba(15, 23, 42, 0.08);
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
-  --shadow-md: 0 4px 14px rgba(15, 23, 42, 0.08);
+  --bg: #e9e0c8;
+  --bg-tile: #ede5d0;
+  --card: #f3ecd8;
+  --text: #2c2418;
+  --muted: #7a7164;
+  --soft: #5a5145;
+  --accent: #a8262e;
+  --accent-soft: #ead4d6;
+  --gold: #9b7920;
+  --gold-soft: #efe1ba;
+  --separator: rgba(44, 36, 24, 0.10);
+  --shadow-sm: 0 1px 2px rgba(44, 36, 24, 0.06);
+  --shadow-md: 0 4px 14px rgba(44, 36, 24, 0.10);
   --radius: 14px;
   --radius-sm: 10px;
 }

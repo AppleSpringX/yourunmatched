@@ -3,10 +3,11 @@
 const tg = window.Telegram?.WebApp;
 tg?.ready();
 tg?.expand();
-// Force light theme on TG header/background — overrides user's TG dark mode for our app.
+// Force light parchment theme on TG header/background.
+// Color must match --bg in app.css to avoid seam between TG chrome and our content.
 try {
-  tg?.setBackgroundColor?.('#fef9f0');
-  tg?.setHeaderColor?.('#fef9f0');
+  tg?.setBackgroundColor?.('#e9e0c8');
+  tg?.setHeaderColor?.('#e9e0c8');
 } catch {}
 
 const status = document.getElementById('topbar-status');
