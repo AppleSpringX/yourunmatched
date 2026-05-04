@@ -1,6 +1,7 @@
 import { getDb, getTopThreeRanks, transaction } from '../db.js';
 import { requireAuth } from '../auth.js';
 import { computePoints, PLAYER_COUNT } from '../scoring.js';
+import { notify, notifyRoom } from '../notify.js';
 
 // — draft helpers —
 
@@ -178,6 +179,16 @@ export async function roomsRoutes(app) {
       team = t0 < 2 ? 0 : 1;
     }
     db.prepare('INSERT INTO game_players (game_id, tg_id, team) VALUES (?, ?, ?)').run(id, user.tg_id, team);
+
+    // Tell the creator someone joined (only if not the creator joining their own room).
+    if (room.creator_tg_id !== user.tg_id) {
+      const newCount = count + 1;
+      const remaining = PLAYER_COUNT[room.type] - newCount;
+      const status = remaining > 0
+        ? `${user.display_name || 'Игрок'} зашёл — ждём ещё ${remaining}`
+        : `${user.display_name || 'Игрок'} зашёл — комната заполнена 🔥`;
+      notifyRoom(room.creator_tg_id, status, id);
+    }
     return { ok: true };
   });
 
@@ -277,6 +288,13 @@ export async function roomsRoutes(app) {
         .run(Date.now(), '[]', id);
     });
 
+    // Notify first picker that their ban turn just started.
+    const fresh = db.prepare('SELECT * FROM game_players WHERE game_id = ? ORDER BY rowid').all(id);
+    const order = draftPlayerOrder(fresh, room.type);
+    if (order[0]) {
+      notifyRoom(order[0].tg_id, '🎲 Драфт начался — твой ход: бан', id);
+    }
+
     return { ok: true };
   });
 
@@ -326,6 +344,21 @@ export async function roomsRoutes(app) {
         ).run(heroIdNum, id, user.tg_id);
       }
     });
+
+    // Notifications: nudge the next picker, or congratulate everyone on draft completion.
+    const total = 2 * N;
+    if (log.length < total) {
+      const nextIdx = log.length % N;
+      const nextPhase = log.length < N ? 'бан' : 'пик';
+      const nextPlayer = ordered[nextIdx];
+      if (nextPlayer && nextPlayer.tg_id !== user.tg_id) {
+        notifyRoom(nextPlayer.tg_id, `🎲 Твой ход в драфте: ${nextPhase}`, id);
+      }
+    } else {
+      for (const p of ordered) {
+        notifyRoom(p.tg_id, '✅ Драфт завершён — герои выбраны, ждите результата от хоста.', id);
+      }
+    }
 
     return { ok: true };
   });
@@ -433,6 +466,12 @@ export async function roomsRoutes(app) {
         "UPDATE games SET status = 'finished', finished_at = ?, notes = ? WHERE id = ?"
       ).run(Date.now(), typeof notes === 'string' ? notes.slice(0, 200) : null, id);
     });
+
+    // Notify each player with their result.
+    for (const c of computed) {
+      const verb = c.is_winner ? '🏆 Победа' : '💀 Поражение';
+      notifyRoom(c.tg_id, `${verb} · +${c.points_awarded} очков`, id);
+    }
 
     return { ok: true, results: computed };
   });

@@ -1,6 +1,7 @@
 import { Bot } from 'grammy';
 import { config } from './config.js';
 import { getDb } from './db.js';
+import { setBot } from './notify.js';
 
 export async function startBot(app) {
   if (!config.botToken) {
@@ -9,6 +10,7 @@ export async function startBot(app) {
   }
 
   const bot = new Bot(config.botToken);
+  setBot(bot);
 
   bot.command('start', (ctx) => {
     if (!config.webappUrl) {
