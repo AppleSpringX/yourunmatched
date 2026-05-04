@@ -2,6 +2,61 @@ import { getDb, getTopThreeRanks, transaction } from '../db.js';
 import { requireAuth } from '../auth.js';
 import { computePoints, PLAYER_COUNT } from '../scoring.js';
 
+// — draft helpers —
+
+// Player turn order for the draft.
+// 2v2 alternates teams (A1, B1, A2, B2). 1v1 / FFA use plain join order.
+function draftPlayerOrder(players, type) {
+  if (type === '2v2') {
+    const t0 = players.filter((p) => p.team === 0);
+    const t1 = players.filter((p) => p.team === 1);
+    const max = Math.max(t0.length, t1.length);
+    const out = [];
+    for (let i = 0; i < max; i++) {
+      if (t0[i]) out.push(t0[i]);
+      if (t1[i]) out.push(t1[i]);
+    }
+    return out;
+  }
+  return players;
+}
+
+// Computes draft state for a room. Returns null if draft mode not enabled.
+function draftState(room, players) {
+  if (!room.is_draft) return null;
+  const log = JSON.parse(room.draft_log || '[]');
+  const ordered = draftPlayerOrder(players, room.type);
+  const N = ordered.length;
+  const total = 2 * N;
+  const banned = log.filter((a) => a.action === 'ban').map((a) => a.hero_id);
+  const picks = log.filter((a) => a.action === 'pick').map((a) => ({ tg_id: a.tg_id, hero_id: a.hero_id }));
+  const complete = log.length >= total;
+  const started = !!room.draft_started_at;
+
+  let currentTurn = null;
+  let currentAction = null;
+  if (started && !complete) {
+    currentAction = log.length < N ? 'ban' : 'pick';
+    currentTurn = ordered[log.length % N]?.tg_id ?? null;
+  }
+
+  return {
+    started,
+    complete,
+    pool: JSON.parse(room.hero_pool || '[]'),
+    banned,
+    picks,
+    log,
+    total,
+    done: log.length,
+    currentTurn,
+    currentAction,
+    order: ordered.map((p) => p.tg_id),
+  };
+}
+
+// — routes —
+
 export async function roomsRoutes(app) {
   // List open rooms
   app.get('/', async (req, reply) => {
@@ -9,6 +64,7 @@ export async function roomsRoutes(app) {
     const db = getDb();
     const rooms = db.prepare(`
       SELECT g.id, g.type, g.creator_tg_id, g.notes, g.created_at, g.tournament_id,
+             g.is_draft,
              u.display_name AS creator_name,
              t.name AS tournament_name,
              (SELECT COUNT(*) FROM game_players WHERE game_id = g.id) AS players_count
@@ -23,18 +79,37 @@ export async function roomsRoutes(app) {
     };
   });
 
-  // Create a room (creator auto-joins as participant, team 0 for 2v2)
+  // Create a room. Optional draft mode with hero_pool (array of hero ids).
   app.post('/', async (req, reply) => {
     const user = requireAuth(req, reply);
     if (!user) return;
-    const { type } = req.body || {};
+    const { type, is_draft, hero_pool } = req.body || {};
     if (!PLAYER_COUNT[type]) return reply.code(400).send({ error: 'invalid_type' });
+
+    const isDraft = !!is_draft;
+    let poolJson = null;
+    if (isDraft) {
+      const minPool = 2 * PLAYER_COUNT[type];
+      if (!Array.isArray(hero_pool)) return reply.code(400).send({ error: 'invalid_pool' });
+      const pool = [...new Set(hero_pool.map(Number).filter(Number.isFinite))];
+      if (pool.length < minPool) {
+        return reply.code(400).send({ error: 'pool_too_small', needed: minPool });
+      }
+      // Validate hero ids exist
+      const db = getDb();
+      const placeholders = pool.map(() => '?').join(',');
+      const found = db.prepare(`SELECT COUNT(*) AS n FROM heroes WHERE id IN (${placeholders})`).get(...pool).n;
+      if (found !== pool.length) return reply.code(400).send({ error: 'unknown_hero_in_pool' });
+      poolJson = JSON.stringify(pool);
+    }
+
     const db = getDb();
     let roomId;
     transaction(db, () => {
-      const r = db.prepare(
-        "INSERT INTO games (type, creator_tg_id, status, created_at) VALUES (?, ?, 'open', ?)"
-      ).run(type, user.tg_id, Date.now());
+      const r = db.prepare(`
+        INSERT INTO games (type, creator_tg_id, status, created_at, is_draft, hero_pool)
+        VALUES (?, ?, 'open', ?, ?, ?)
+      `).run(type, user.tg_id, Date.now(), isDraft ? 1 : 0, poolJson);
       roomId = Number(r.lastInsertRowid);
       const team = type === '2v2' ? 0 : null;
       db.prepare(
@@ -44,7 +119,7 @@ export async function roomsRoutes(app) {
     return { id: roomId };
   });
 
-  // Room detail with participants
+  // Room detail with participants + draft state if applicable
   app.get('/:id', async (req, reply) => {
     if (!requireAuth(req, reply)) return;
     const db = getDb();
@@ -68,10 +143,19 @@ export async function roomsRoutes(app) {
     `).all(room.id);
     const ranks = getTopThreeRanks();
     for (const p of players) p.rank = ranks.get(p.tg_id) ?? null;
-    return { room: { ...room, players, target_count: PLAYER_COUNT[room.type] } };
+    const draft = draftState(room, players);
+    return {
+      room: {
+        ...room,
+        is_draft: !!room.is_draft,
+        players,
+        target_count: PLAYER_COUNT[room.type],
+        draft,
+      },
+    };
   });
 
-  // Join room
+  // Join (not allowed for tournament matches — fixed roster)
   app.post('/:id/join', async (req, reply) => {
     const user = requireAuth(req, reply);
     if (!user) return;
@@ -81,6 +165,7 @@ export async function roomsRoutes(app) {
     if (!room) return reply.code(404).send({ error: 'not_found' });
     if (room.status !== 'open') return reply.code(400).send({ error: 'not_open' });
     if (room.tournament_id) return reply.code(400).send({ error: 'tournament_match' });
+    if (room.draft_started_at) return reply.code(400).send({ error: 'draft_in_progress' });
     if (db.prepare('SELECT 1 FROM game_players WHERE game_id = ? AND tg_id = ?').get(id, user.tg_id)) {
       return reply.code(400).send({ error: 'already_in' });
     }
@@ -96,7 +181,7 @@ export async function roomsRoutes(app) {
     return { ok: true };
   });
 
-  // Leave room (creator leaving deletes the room)
+  // Leave (creator-leave deletes the room)
   app.post('/:id/leave', async (req, reply) => {
     const user = requireAuth(req, reply);
     if (!user) return;
@@ -106,6 +191,7 @@ export async function roomsRoutes(app) {
     if (!room) return reply.code(404).send({ error: 'not_found' });
     if (room.status !== 'open') return reply.code(400).send({ error: 'not_open' });
     if (room.tournament_id) return reply.code(400).send({ error: 'tournament_match' });
+    if (room.draft_started_at) return reply.code(400).send({ error: 'draft_in_progress' });
     if (room.creator_tg_id === user.tg_id) {
       db.prepare('DELETE FROM games WHERE id = ?').run(id);
       return { ok: true, deleted: true };
@@ -114,7 +200,7 @@ export async function roomsRoutes(app) {
     return { ok: true };
   });
 
-  // Pick a hero (canonical or custom). Pass hero_id OR hero_custom, not both.
+  // Manual hero pick (non-draft mode). In draft mode, picks come via /draft-action.
   app.post('/:id/select-hero', async (req, reply) => {
     const user = requireAuth(req, reply);
     if (!user) return;
@@ -124,6 +210,7 @@ export async function roomsRoutes(app) {
     const room = db.prepare('SELECT * FROM games WHERE id = ?').get(id);
     if (!room) return reply.code(404).send({ error: 'not_found' });
     if (room.status !== 'open') return reply.code(400).send({ error: 'not_open' });
+    if (room.draft_started_at) return reply.code(400).send({ error: 'draft_in_progress' });
     if (!db.prepare('SELECT 1 FROM game_players WHERE game_id = ? AND tg_id = ?').get(id, user.tg_id)) {
       return reply.code(400).send({ error: 'not_in_room' });
     }
@@ -136,7 +223,7 @@ export async function roomsRoutes(app) {
     return { ok: true };
   });
 
-  // Switch team (2v2 only)
+  // Switch team (2v2 only, before draft starts)
   app.post('/:id/team', async (req, reply) => {
     const user = requireAuth(req, reply);
     if (!user) return;
@@ -148,6 +235,7 @@ export async function roomsRoutes(app) {
     if (!room) return reply.code(404).send({ error: 'not_found' });
     if (room.type !== '2v2') return reply.code(400).send({ error: 'not_team_game' });
     if (room.status !== 'open') return reply.code(400).send({ error: 'not_open' });
+    if (room.draft_started_at) return reply.code(400).send({ error: 'draft_in_progress' });
     const cur = db.prepare('SELECT team FROM game_players WHERE game_id = ? AND tg_id = ?').get(id, user.tg_id);
     if (!cur) return reply.code(400).send({ error: 'not_in_room' });
     if (cur.team !== teamNum) {
@@ -160,8 +248,89 @@ export async function roomsRoutes(app) {
     return { ok: true };
   });
 
+  // Start the draft (host only). Randomizes 2v2 teams. Resets draft_log.
+  app.post('/:id/start-draft', async (req, reply) => {
+    const user = requireAuth(req, reply);
+    if (!user) return;
+    const db = getDb();
+    const id = Number(req.params.id);
+    const room = db.prepare('SELECT * FROM games WHERE id = ?').get(id);
+    if (!room) return reply.code(404).send({ error: 'not_found' });
+    if (!room.is_draft) return reply.code(400).send({ error: 'not_draft_mode' });
+    if (room.creator_tg_id !== user.tg_id) return reply.code(403).send({ error: 'not_creator' });
+    if (room.draft_started_at) return reply.code(400).send({ error: 'already_started' });
+    if (room.status !== 'open') return reply.code(400).send({ error: 'not_open' });
+
+    const players = db.prepare('SELECT * FROM game_players WHERE game_id = ? ORDER BY rowid').all(id);
+    if (players.length !== PLAYER_COUNT[room.type]) {
+      return reply.code(400).send({ error: 'not_full' });
+    }
+
+    transaction(db, () => {
+      // Randomize 2v2 teams (player order on roster is preserved; we just reassign team labels)
+      if (room.type === '2v2') {
+        const shuffled = [...players].sort(() => Math.random() - 0.5);
+        const upd = db.prepare('UPDATE game_players SET team = ? WHERE game_id = ? AND tg_id = ?');
+        shuffled.forEach((p, i) => upd.run(i < 2 ? 0 : 1, id, p.tg_id));
+      }
+      db.prepare('UPDATE games SET draft_started_at = ?, draft_log = ? WHERE id = ?')
+        .run(Date.now(), '[]', id);
+    });
+
+    return { ok: true };
+  });
+
+  // Draft action: ban or pick a hero (current player only, expected phase)
+  app.post('/:id/draft-action', async (req, reply) => {
+    const user = requireAuth(req, reply);
+    if (!user) return;
+    const { action, hero_id } = req.body || {};
+    if (action !== 'ban' && action !== 'pick') return reply.code(400).send({ error: 'invalid_action' });
+    const heroIdNum = Number(hero_id);
+    if (!Number.isFinite(heroIdNum)) return reply.code(400).send({ error: 'invalid_hero' });
+
+    const db = getDb();
+    const id = Number(req.params.id);
+    const room = db.prepare('SELECT * FROM games WHERE id = ?').get(id);
+    if (!room) return reply.code(404).send({ error: 'not_found' });
+    if (!room.is_draft) return reply.code(400).send({ error: 'not_draft_mode' });
+    if (!room.draft_started_at) return reply.code(400).send({ error: 'draft_not_started' });
+    if (room.status !== 'open') return reply.code(400).send({ error: 'not_open' });
+
+    const players = db.prepare('SELECT * FROM game_players WHERE game_id = ? ORDER BY rowid').all(id);
+    const ordered = draftPlayerOrder(players, room.type);
+    const log = JSON.parse(room.draft_log || '[]');
+    const N = ordered.length;
+    if (log.length >= 2 * N) return reply.code(400).send({ error: 'draft_complete' });
+
+    const expectedPhase = log.length < N ? 'ban' : 'pick';
+    if (action !== expectedPhase) {
+      return reply.code(400).send({ error: 'wrong_phase', expected: expectedPhase });
+    }
+
+    const playerIdx = log.length % N;
+    if (ordered[playerIdx].tg_id !== user.tg_id) {
+      return reply.code(403).send({ error: 'not_your_turn' });
+    }
+
+    const pool = JSON.parse(room.hero_pool || '[]');
+    if (!pool.includes(heroIdNum)) return reply.code(400).send({ error: 'not_in_pool' });
+    if (log.some((a) => a.hero_id === heroIdNum)) return reply.code(400).send({ error: 'hero_used' });
+
+    log.push({ tg_id: user.tg_id, action, hero_id: heroIdNum, ts: Date.now() });
+    transaction(db, () => {
+      db.prepare('UPDATE games SET draft_log = ? WHERE id = ?').run(JSON.stringify(log), id);
+      if (action === 'pick') {
+        db.prepare(
+          'UPDATE game_players SET hero_id = ?, hero_custom = NULL WHERE game_id = ? AND tg_id = ?'
+        ).run(heroIdNum, id, user.tg_id);
+      }
+    });
+
+    return { ok: true };
+  });
+
   // Finalize: only creator. Body: { players: [{tg_id, team?, elimination_order?}], notes? }
-  // Server validates with scoring engine and writes points.
   app.post('/:id/finalize', async (req, reply) => {
     const user = requireAuth(req, reply);
     if (!user) return;

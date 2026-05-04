@@ -662,6 +662,88 @@ label {
 .player-pick-row.selected { background: var(--accent-soft); border-radius: 8px; }
 .player-pick-row input { width: auto; }
 
+/* Draft mode */
+.draft-banner {
+  background: var(--accent);
+  color: #fff;
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  margin-bottom: 10px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.draft-banner.your-turn { background: var(--gold); }
+.draft-banner .phase {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: rgba(255, 255, 255, 0.2);
+  padding: 3px 8px;
+  border-radius: 5px;
+  font-weight: 700;
+}
+.draft-banner .progress {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.draft-pool {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin-top: 8px;
+}
+.draft-card {
+  background: var(--card);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  display: grid;
+  grid-template-columns: 36px 1fr;
+  gap: 10px;
+  align-items: center;
+  cursor: pointer;
+  transition: all 0.1s;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.draft-card .avatar { --size: 36px; }
+.draft-card.disabled { cursor: default; opacity: 0.6; }
+.draft-card.banned {
+  background: rgba(168, 38, 46, 0.08);
+  border-color: var(--accent);
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+.draft-card.picked {
+  background: var(--gold-soft);
+  border-color: var(--gold);
+}
+.draft-card:not(.disabled):not(.banned):not(.picked):active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.draft-card .card-name { font-weight: 600; font-size: 13px; }
+.draft-card .card-meta {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.draft-card.picked .card-meta { color: var(--gold); font-weight: 700; }
+
+.draft-hint {
+  background: var(--bg-tile);
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 10px;
+  font-size: 13px;
+  color: var(--soft);
+}
+
 /* History entry */
 .history-row {
   display: grid;

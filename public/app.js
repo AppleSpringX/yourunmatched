@@ -16,7 +16,27 @@ const screen = document.getElementById('screen');
 const state = {
   me: null,
   heroes: null,
+  pollTimer: null,
 };
+
+function stopPolling() {
+  if (state.pollTimer) {
+    clearInterval(state.pollTimer);
+    state.pollTimer = null;
+  }
+}
+
+async function ensureHeroes() {
+  if (!state.heroes) {
+    const { heroes } = await api('/heroes');
+    state.heroes = heroes;
+  }
+  return state.heroes;
+}
+
+function heroById(id) {
+  return state.heroes?.find((h) => h.id === id);
+}
 
 // — top-3 medal helpers —
 
@@ -100,7 +120,10 @@ function navigate() {
   });
 }
 
-window.addEventListener('hashchange', navigate);
+window.addEventListener('hashchange', () => {
+  stopPolling();
+  navigate();
+});
 
 // — players list / detail —
 
@@ -319,17 +342,27 @@ async function renderRoomsList() {
   }).join('');
 }
 
-function openCreateRoom() {
+async function openCreateRoom() {
+  await ensureHeroes();
+  const allHeroIds = state.heroes.map((h) => h.id);
+
   const types = [
     { key: '1v1', name: '1 на 1', desc: '2 игрока · соло' },
     { key: '2v2', name: '2 на 2', desc: '4 игрока · команды' },
     { key: 'ffa3', name: 'FFA-3', desc: '3 игрока · все против всех' },
     { key: 'ffa4', name: 'FFA-4', desc: '4 игрока · все против всех' },
   ];
+  const playerCount = { '1v1': 2, '2v2': 4, ffa3: 3, ffa4: 4 };
   let selected = '1v1';
+  let isDraft = false;
+  let pool = new Set(allHeroIds);
+  let view = 'main';
+
   const modal = openModal({ title: 'Создать комнату', body: '' });
 
-  const refresh = () => {
+  const renderMain = () => {
+    const minPool = 2 * playerCount[selected];
+    const poolOk = pool.size >= minPool;
     modal.body.innerHTML = `
       <div class="type-grid">
         ${types.map((t) => `
@@ -339,20 +372,42 @@ function openCreateRoom() {
           </div>
         `).join('')}
       </div>
+      <label style="display:flex;align-items:center;gap:10px;margin-top:14px;cursor:pointer;text-transform:none;letter-spacing:0;font-size:14px;color:var(--text);">
+        <input type="checkbox" id="draft-toggle" ${isDraft ? 'checked' : ''} style="width:auto;" />
+        <span><b>Драфт-режим</b> · бан-пик из пула, рандом команд (для 2v2)</span>
+      </label>
+      ${isDraft ? `
+        <div style="margin-top:8px;">
+          <button id="pool-edit" class="secondary" style="width:100%;font-size:13px;">
+            Пул: ${pool.size} героев · мин ${minPool} ${poolOk ? '✓' : '⚠'}
+          </button>
+        </div>
+      ` : ''}
       <div class="row" style="margin-top:18px;">
-        <button id="create-confirm" style="width:100%;">Создать</button>
+        <button id="create-confirm" style="width:100%;" ${isDraft && !poolOk ? 'disabled' : ''}>
+          Создать
+        </button>
       </div>
     `;
     modal.body.querySelectorAll('.type-tile').forEach((el) => {
-      el.onclick = () => { selected = el.dataset.type; refresh(); };
+      el.onclick = () => { selected = el.dataset.type; renderMain(); };
     });
+    modal.body.querySelector('#draft-toggle').onchange = (e) => {
+      isDraft = e.target.checked;
+      renderMain();
+    };
+    const poolBtn = modal.body.querySelector('#pool-edit');
+    if (poolBtn) poolBtn.onclick = () => { view = 'pool'; renderPool(); };
+
     modal.body.querySelector('#create-confirm').onclick = async (e) => {
       e.target.disabled = true;
       try {
-        const r = await api('/rooms', {
-          method: 'POST',
-          body: JSON.stringify({ type: selected }),
-        });
+        const body = { type: selected };
+        if (isDraft) {
+          body.is_draft = true;
+          body.hero_pool = [...pool];
+        }
+        const r = await api('/rooms', { method: 'POST', body: JSON.stringify(body) });
         modal.close();
         location.hash = `#/rooms/${r.id}`;
       } catch (err) {
@@ -361,16 +416,95 @@ function openCreateRoom() {
       }
     };
   };
-  refresh();
+
+  const renderPool = () => {
+    const grouped = {};
+    for (const h of state.heroes) {
+      if (!grouped[h.set_name]) grouped[h.set_name] = [];
+      grouped[h.set_name].push(h);
+    }
+    const sets = Object.entries(grouped);
+    modal.body.innerHTML = `
+      <div class="row" style="margin-bottom:10px;gap:8px;">
+        <button id="pool-back" class="secondary" style="flex:1;">← Назад</button>
+        <button id="pool-all" class="secondary" style="flex:1;font-size:12px;">Все</button>
+        <button id="pool-none" class="secondary" style="flex:1;font-size:12px;">Очистить</button>
+      </div>
+      <div class="muted" style="font-size:12px;margin-bottom:10px;">
+        Выбрано: <b style="color:var(--text);">${pool.size}</b> из ${state.heroes.length}
+      </div>
+      <div id="pool-list">
+        ${sets.map(([set, heroes]) => `
+          <div class="hero-set-header" data-set="${escape(set)}" style="cursor:pointer;display:flex;align-items:center;gap:8px;">
+            <span>${escape(set)}</span>
+            <span class="muted" style="font-weight:500;text-transform:none;letter-spacing:0;">
+              ${heroes.filter((h) => pool.has(h.id)).length}/${heroes.length}
+            </span>
+          </div>
+          ${heroes.map((h) => `
+            <label class="hero-row" style="cursor:pointer;">
+              <input type="checkbox" data-hero-id="${h.id}" ${pool.has(h.id) ? 'checked' : ''} style="width:auto;" />
+              ${heroAvatar(h.name)}
+              <div>
+                <div class="hero-name">${escape(h.name)}</div>
+                <div class="hero-set">${escape(h.set_name)}</div>
+              </div>
+              <div></div>
+            </label>
+          `).join('')}
+        `).join('')}
+      </div>
+    `;
+    modal.body.querySelector('#pool-back').onclick = () => { view = 'main'; renderMain(); };
+    modal.body.querySelector('#pool-all').onclick = () => {
+      pool = new Set(allHeroIds);
+      renderPool();
+    };
+    modal.body.querySelector('#pool-none').onclick = () => {
+      pool = new Set();
+      renderPool();
+    };
+    modal.body.querySelectorAll('input[data-hero-id]').forEach((el) => {
+      el.onchange = (e) => {
+        const id = Number(el.dataset.heroId);
+        if (e.target.checked) pool.add(id);
+        else pool.delete(id);
+        // Update count without full rerender
+        const counts = modal.body.querySelectorAll('.hero-set-header span:last-child');
+        const setName = el.closest('label').querySelector('.hero-set').textContent;
+        // Simpler: just rerender — list isn't huge
+        renderPool();
+      };
+    });
+    // Toggle whole set on header tap
+    modal.body.querySelectorAll('.hero-set-header[data-set]').forEach((el) => {
+      el.onclick = () => {
+        const setName = el.dataset.set;
+        const heroes = state.heroes.filter((h) => h.set_name === setName);
+        const allSelected = heroes.every((h) => pool.has(h.id));
+        if (allSelected) heroes.forEach((h) => pool.delete(h.id));
+        else heroes.forEach((h) => pool.add(h.id));
+        renderPool();
+      };
+    });
+  };
+
+  renderMain();
 }
 
 async function renderRoomDetail(id) {
+  stopPolling();
   const { room } = await api(`/rooms/${id}`);
   const me = state.me;
   const myPlayer = room.players.find((p) => p.tg_id === me.tg_id);
   const isCreator = room.creator_tg_id === me.tg_id;
   const full = room.players.length >= room.target_count;
   const allPicked = room.players.every((p) => p.hero_id || p.hero_custom);
+
+  // Active draft → dedicated draft UI
+  if (room.is_draft && room.draft?.started && !room.draft?.complete && room.status === 'open') {
+    return renderDraftRoom(room);
+  }
 
   if (room.status === 'finished') {
     screen.innerHTML = `
@@ -430,28 +564,50 @@ async function renderRoomDetail(id) {
   }
 
   const isTournamentMatch = !!room.tournament_id;
+  const inDraft = !!(room.is_draft && room.draft?.started);
+  const draftDone = !!room.draft?.complete;
+  // In draft mode, heroes are assigned via ban-pick — never via manual picker.
+  const showHeroPick = !room.is_draft;
 
   let actionsHtml = '<div class="actions">';
   if (myPlayer) {
-    actionsHtml += `<button id="pick-hero" class="secondary">${(myPlayer.hero_name || myPlayer.hero_custom) ? 'Сменить героя' : 'Выбрать героя'}</button>`;
+    if (showHeroPick) {
+      actionsHtml += `<button id="pick-hero" class="secondary">${(myPlayer.hero_name || myPlayer.hero_custom) ? 'Сменить героя' : 'Выбрать героя'}</button>`;
+    }
+    if (room.is_draft && !room.draft?.started && isCreator && full) {
+      actionsHtml += `<button id="start-draft">Начать драфт</button>`;
+    }
     if (isCreator) {
       actionsHtml += `<button id="finalize" ${full && allPicked ? '' : 'disabled'}>Записать результаты</button>`;
     }
-    if (!isTournamentMatch) {
+    if (!isTournamentMatch && !inDraft) {
       actionsHtml += `<button id="leave" class="secondary">${isCreator ? 'Удалить комнату' : 'Покинуть комнату'}</button>`;
     }
   } else if (full) {
     actionsHtml += `<button disabled>Комната заполнена</button>`;
   } else if (isTournamentMatch) {
     actionsHtml += `<button disabled>Турнирный матч (только для участников)</button>`;
+  } else if (inDraft) {
+    actionsHtml += `<button disabled>Драфт уже начался</button>`;
   } else {
     actionsHtml += `<button id="join">Войти в комнату</button>`;
   }
   actionsHtml += '</div>';
 
-  const stateText = !full
-    ? `Ждём игроков (${room.players.length}/${room.target_count})`
-    : (!allPicked ? 'Все на месте, остался выбор героев' : 'Готово к старту — хост может записать результат');
+  let stateText;
+  if (room.is_draft && !room.draft?.started) {
+    stateText = !full
+      ? `Драфт-режим · пул ${room.draft?.pool?.length || 0} героев · ждём (${room.players.length}/${room.target_count})`
+      : `Все собрались — хост запускает драфт`;
+  } else if (room.is_draft && draftDone) {
+    stateText = 'Драфт завершён · хост может записать результат';
+  } else if (!full) {
+    stateText = `Ждём игроков (${room.players.length}/${room.target_count})`;
+  } else if (!allPicked) {
+    stateText = 'Все на месте, остался выбор героев';
+  } else {
+    stateText = 'Готово к старту — хост может записать результат';
+  }
 
   const tournamentLink = room.tournament_name
     ? `<a href="#/tournaments/${room.tournament_id}" class="tournament-badge" style="text-decoration:none;display:inline-block;">${escape(room.tournament_name)}</a>`
@@ -492,6 +648,19 @@ async function renderRoomDetail(id) {
   const finBtn = screen.querySelector('#finalize');
   if (finBtn) finBtn.onclick = () => { location.hash = `#/rooms/${id}/finalize`; };
 
+  const startDraftBtn = screen.querySelector('#start-draft');
+  if (startDraftBtn) startDraftBtn.onclick = async () => {
+    if (!confirm('Стартуем драфт? Состав будет зафиксирован, в 2v2 команды распределятся случайно.')) return;
+    startDraftBtn.disabled = true;
+    try {
+      await api(`/rooms/${id}/start-draft`, { method: 'POST' });
+      renderRoomDetail(id);
+    } catch (e) {
+      alert('Не получилось: ' + e.message);
+      startDraftBtn.disabled = false;
+    }
+  };
+
   screen.querySelectorAll('.swap').forEach((btn) => {
     btn.onclick = async (e) => {
       e.preventDefault();
@@ -504,6 +673,134 @@ async function renderRoomDetail(id) {
       } catch (err) { alert('Не получилось: ' + err.message); }
     };
   });
+}
+
+async function renderDraftRoom(room) {
+  await ensureHeroes();
+  const me = state.me;
+  const draft = room.draft;
+  const isMyTurn = draft.currentTurn === me.tg_id;
+  const currentPlayer = room.players.find((p) => p.tg_id === draft.currentTurn);
+  const N = room.target_count;
+  const phaseDone = draft.currentAction === 'ban' ? draft.banned.length : draft.picks.length;
+
+  const tournamentLink = room.tournament_name
+    ? `<a href="#/tournaments/${room.tournament_id}" class="tournament-badge" style="text-decoration:none;display:inline-block;">${escape(room.tournament_name)}</a>`
+    : '';
+
+  const bannerCls = isMyTurn ? 'your-turn' : '';
+  let bannerText;
+  if (isMyTurn) {
+    bannerText = draft.currentAction === 'ban' ? 'Твой бан — выбери героя в пуле' : 'Твой пик — выбери героя для себя';
+  } else {
+    const phaseLabel = draft.currentAction === 'ban' ? 'банит' : 'выбирает героя';
+    bannerText = `${escape(currentPlayer?.display_name || '?')} ${phaseLabel}…`;
+  }
+  const phaseTitle = draft.currentAction === 'ban' ? 'БАН' : 'ПИК';
+  const progressLabel = `${phaseDone + 1} / ${N}`;
+
+  // Sort pool: available first, then picked, then banned
+  const poolHeroes = draft.pool.map((id) => heroById(id)).filter(Boolean);
+  poolHeroes.sort((a, b) => {
+    const rank = (h) => {
+      if (draft.banned.includes(h.id)) return 2;
+      if (draft.picks.find((p) => p.hero_id === h.id)) return 1;
+      return 0;
+    };
+    return rank(a) - rank(b) || a.name.localeCompare(b.name);
+  });
+
+  screen.innerHTML = `
+    <div class="card" style="display:flex;align-items:center;gap:12px;padding:14px 16px;">
+      <div class="room-type-badge">${roomTypeLabel(room.type)}</div>
+      <div style="flex:1;">
+        <div style="font-weight:700;">Драфт · комната #${room.id} ${tournamentLink}</div>
+        <div class="muted" style="font-size:12px;margin-top:2px;">Идёт бан-пик</div>
+      </div>
+    </div>
+
+    <div class="draft-banner ${bannerCls}">
+      <span style="flex:1;min-width:0;">${bannerText}</span>
+      <span class="phase">${phaseTitle}</span>
+      <span class="progress">${progressLabel}</span>
+    </div>
+
+    <div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;font-weight:700;margin:12px 0 4px;">
+      Очередь
+    </div>
+    <div class="card" style="padding:8px 12px;">
+      ${draft.order.map((tgId, i) => {
+        const p = room.players.find((pp) => pp.tg_id === tgId);
+        if (!p) return '';
+        const isCur = tgId === draft.currentTurn;
+        const teamLabel = room.type === '2v2'
+          ? ` <span class="muted" style="font-size:11px;font-weight:400;">(${p.team === 0 ? 'A' : 'B'})</span>`
+          : '';
+        return `
+          <div style="display:flex;align-items:center;gap:8px;padding:5px 0;${isCur ? 'font-weight:700;color:var(--accent);' : ''}">
+            <span style="width:18px;font-variant-numeric:tabular-nums;text-align:right;">${i + 1}.</span>
+            ${playerAvatar(p, 24)}
+            <span style="flex:1;">${medalSpan(p.rank)}${escape(p.display_name)}${teamLabel}</span>
+            ${isCur ? '<span style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;">ход</span>' : ''}
+          </div>
+        `;
+      }).join('')}
+    </div>
+
+    <h3 class="section-title">Пул героев · ${draft.pool.length}</h3>
+    <div class="draft-pool">
+      ${poolHeroes.map((h) => {
+        const isBanned = draft.banned.includes(h.id);
+        const pickInfo = draft.picks.find((p) => p.hero_id === h.id);
+        const isPicked = !!pickInfo;
+        const tappable = isMyTurn && !isBanned && !isPicked;
+        const cls = isBanned ? 'banned' : (isPicked ? 'picked' : (tappable ? '' : 'disabled'));
+        const pickerName = isPicked ? room.players.find((p) => p.tg_id === pickInfo.tg_id)?.display_name : '';
+        return `
+          <div class="draft-card ${cls}" data-hero-id="${h.id}">
+            ${heroAvatar(h.name)}
+            <div style="min-width:0;">
+              <div class="card-name">${escape(h.name)}</div>
+              <div class="card-meta">
+                ${isBanned ? 'Забанен' : isPicked ? '→ ' + escape(pickerName) : escape(h.set_name)}
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+
+    <p class="muted" style="font-size:11px;text-align:center;margin-top:14px;">
+      Обновляется автоматически каждые 3 секунды.
+    </p>
+  `;
+
+  if (isMyTurn) {
+    screen.querySelectorAll('.draft-card:not(.banned):not(.picked):not(.disabled)').forEach((el) => {
+      el.addEventListener('click', async () => {
+        const heroId = Number(el.dataset.heroId);
+        try {
+          await api(`/rooms/${room.id}/draft-action`, {
+            method: 'POST',
+            body: JSON.stringify({ action: draft.currentAction, hero_id: heroId }),
+          });
+          tg?.HapticFeedback?.selectionChanged?.();
+          renderRoomDetail(room.id);
+        } catch (e) {
+          alert('Не получилось: ' + e.message);
+        }
+      });
+    });
+  }
+
+  // Polling for live updates while draft is in progress.
+  state.pollTimer = setInterval(() => {
+    if (location.hash === `#/rooms/${room.id}`) {
+      renderRoomDetail(room.id);
+    } else {
+      stopPolling();
+    }
+  }, 3000);
 }
 
 async function openHeroPicker(roomId, myPlayer) {

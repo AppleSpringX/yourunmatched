@@ -23,9 +23,27 @@ export function initDb() {
   db.exec('PRAGMA foreign_keys = ON');
 
   migrate(db);
+  ensureSchemaExtensions(db);
   seedHeroes(db);
   syncHeroNames(db);
   return db;
+}
+
+// Idempotent ALTER TABLE ADD COLUMN — checks PRAGMA before adding so we don't error on re-run.
+function ensureColumn(db, table, column, definition) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!cols.some((c) => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    console.log(`[db] added column ${table}.${column}`);
+  }
+}
+
+function ensureSchemaExtensions(db) {
+  // Phase 2b — draft mode columns on games.
+  ensureColumn(db, 'games', 'is_draft', 'INTEGER NOT NULL DEFAULT 0');
+  ensureColumn(db, 'games', 'hero_pool', 'TEXT');
+  ensureColumn(db, 'games', 'draft_started_at', 'INTEGER');
+  ensureColumn(db, 'games', 'draft_log', "TEXT NOT NULL DEFAULT '[]'");
 }
 
 // Top-3 by overall (sum of all points across game types).
