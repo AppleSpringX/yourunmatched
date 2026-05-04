@@ -67,6 +67,11 @@ function ensureSchemaExtensions(db) {
   ensureColumn(db, 'games', 'hero_pool', 'TEXT');
   ensureColumn(db, 'games', 'draft_started_at', 'INTEGER');
   ensureColumn(db, 'games', 'draft_log', "TEXT NOT NULL DEFAULT '[]'");
+
+  // Phase 4 — privacy toggles on users (each section can be hidden from other viewers).
+  ensureColumn(db, 'users', 'show_breakdown', 'INTEGER NOT NULL DEFAULT 1');
+  ensureColumn(db, 'users', 'show_heroes', 'INTEGER NOT NULL DEFAULT 1');
+  ensureColumn(db, 'users', 'show_recent', 'INTEGER NOT NULL DEFAULT 1');
 }
 
 // Top-3 by overall (sum of all points across game types).

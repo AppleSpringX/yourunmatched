@@ -182,63 +182,77 @@ async function renderPlayers() {
 
 async function renderPlayerDetail([tgId]) {
   if (!tgId) return renderNotFound();
-  const { user, totals, heroStats, recent } = await api(`/players/${tgId}`);
+  const { user, totals, heroStats, recent, isOwner } = await api(`/players/${tgId}`);
   const heroLabel = user.hero_name || user.signature_custom || 'герой не выбран';
+  const breakdownHidden = totals?.hidden;
+
+  const breakdownCard = breakdownHidden
+    ? `<div class="card" style="padding:14px 16px;text-align:center;">
+        <div style="font-size:22px;font-weight:800;color:var(--accent);">${totals.pts_overall || 0}</div>
+        <div class="muted" style="font-size:12px;text-transform:uppercase;letter-spacing:0.05em;font-weight:700;margin-top:4px;">очков всего</div>
+        <div class="muted" style="font-size:12px;margin-top:8px;">Раскладка по режимам скрыта</div>
+       </div>`
+    : `<div class="card stats-strip">
+         <div class="cell"><div class="v">${totals.pts_overall || 0}</div><div class="l">Всего</div></div>
+         <div class="cell"><div class="v">${totals.pts_1v1 || 0}</div><div class="l">1v1</div></div>
+         <div class="cell"><div class="v">${totals.pts_2v2 || 0}</div><div class="l">2v2</div></div>
+         <div class="cell"><div class="v">${totals.pts_ffa || 0}</div><div class="l">FFA</div></div>
+       </div>
+       <div class="card" style="padding:14px 16px;">
+         <div class="muted" style="font-size:13px;">
+           Сыграно: <b style="color:var(--text)">${totals.games_played || 0}</b> · Побед: <b style="color:var(--text)">${totals.wins || 0}</b>
+         </div>
+       </div>`;
+
+  const heroesSection = heroStats === null
+    ? `<h3 class="section-title">Колоды</h3><div class="card empty" style="padding:18px;">Скрыто пользователем</div>`
+    : (heroStats.length ? `
+        <h3 class="section-title">Колоды</h3>
+        <div class="card">
+          ${heroStats.map((h) => `
+            <div class="player-row">
+              ${heroAvatar(h.hero_name)}
+              <div>
+                <div class="player-name">${escape(h.hero_name)}</div>
+                <div class="player-meta">${formatGamesCount(h.games)} · ${Math.round((h.wins / h.games) * 100)}% побед</div>
+              </div>
+              <div class="points ${h.points ? '' : 'dim'}">${h.points}</div>
+            </div>
+          `).join('')}
+        </div>
+      ` : '');
+
+  const recentSection = recent === null
+    ? `<h3 class="section-title">Недавние партии</h3><div class="card empty" style="padding:18px;">Скрыто пользователем</div>`
+    : (recent.length ? `
+        <h3 class="section-title">Недавние партии</h3>
+        <div class="card">
+          ${recent.map((r) => `
+            <div class="history-row">
+              <div>
+                <span class="game-type ${r.is_winner ? 'winner' : ''}">${gameTypeLabel(r.type)}</span>
+                <b>${escape(r.hero_name || '—')}</b>
+                <div class="player-meta" style="margin-top:4px;">
+                  ${formatDate(r.finished_at)}${r.notes ? ' · ' + escape(r.notes) : ''}
+                </div>
+              </div>
+              <div class="points ${r.points_awarded ? '' : 'dim'}">${r.is_winner ? '🏆 ' : ''}${r.points_awarded}</div>
+            </div>
+          `).join('')}
+        </div>
+      ` : '');
+
   screen.innerHTML = `
     <div class="card profile-hero">
       ${playerAvatar(user)}
       <div>
-        <div class="name">${medalSpan(user.rank)}${escape(user.display_name)}</div>
+        <div class="name">${medalSpan(user.rank)}${escape(user.display_name)}${isOwner ? ' <span class="muted" style="font-size:11px;font-weight:400;">(ты)</span>' : ''}</div>
         <div class="sub">${escape(heroLabel)}</div>
       </div>
     </div>
-
-    <div class="card stats-strip">
-      <div class="cell"><div class="v">${totals.pts_overall || 0}</div><div class="l">Всего</div></div>
-      <div class="cell"><div class="v">${totals.pts_1v1 || 0}</div><div class="l">1v1</div></div>
-      <div class="cell"><div class="v">${totals.pts_2v2 || 0}</div><div class="l">2v2</div></div>
-      <div class="cell"><div class="v">${totals.pts_ffa || 0}</div><div class="l">FFA</div></div>
-    </div>
-
-    <div class="card" style="padding:14px 16px;">
-      <div class="muted" style="font-size:13px;">
-        Сыграно: <b style="color:var(--text)">${totals.games_played || 0}</b> · Побед: <b style="color:var(--text)">${totals.wins || 0}</b>
-      </div>
-    </div>
-
-    ${heroStats.length ? `
-      <h3 class="section-title">Колоды</h3>
-      <div class="card">
-        ${heroStats.map((h) => `
-          <div class="player-row">
-            ${heroAvatar(h.hero_name)}
-            <div>
-              <div class="player-name">${escape(h.hero_name)}</div>
-              <div class="player-meta">${formatGamesCount(h.games)} · ${Math.round((h.wins / h.games) * 100)}% побед</div>
-            </div>
-            <div class="points ${h.points ? '' : 'dim'}">${h.points}</div>
-          </div>
-        `).join('')}
-      </div>
-    ` : ''}
-
-    ${recent.length ? `
-      <h3 class="section-title">Недавние партии</h3>
-      <div class="card">
-        ${recent.map((r) => `
-          <div class="history-row">
-            <div>
-              <span class="game-type ${r.is_winner ? 'winner' : ''}">${gameTypeLabel(r.type)}</span>
-              <b>${escape(r.hero_name || '—')}</b>
-              <div class="player-meta" style="margin-top:4px;">
-                ${formatDate(r.finished_at)}${r.notes ? ' · ' + escape(r.notes) : ''}
-              </div>
-            </div>
-            <div class="points ${r.points_awarded ? '' : 'dim'}">${r.is_winner ? '🏆 ' : ''}${r.points_awarded}</div>
-          </div>
-        `).join('')}
-      </div>
-    ` : ''}
+    ${breakdownCard}
+    ${heroesSection}
+    ${recentSection}
   `;
 }
 
@@ -262,6 +276,7 @@ async function renderProfile() {
     </optgroup>
   `).join('');
 
+  const priv = me.privacy || { show_breakdown: true, show_heroes: true, show_recent: true };
   screen.innerHTML = `
     <div class="card profile-hero">
       ${playerAvatar(me)}
@@ -291,6 +306,25 @@ async function renderProfile() {
         Аватарку можно поменять — отправь любую фотку боту в личку.
       </p>
     </div>
+
+    <h3 class="section-title">Приватность · что видят другие</h3>
+    <div class="card">
+      <label class="priv-row">
+        <input type="checkbox" id="p-breakdown" ${priv.show_breakdown ? 'checked' : ''} />
+        <span>Очки по режимам (1v1 / 2v2 / FFA)</span>
+      </label>
+      <label class="priv-row">
+        <input type="checkbox" id="p-heroes" ${priv.show_heroes ? 'checked' : ''} />
+        <span>Статистика колод и винрейты</span>
+      </label>
+      <label class="priv-row">
+        <input type="checkbox" id="p-recent" ${priv.show_recent ? 'checked' : ''} />
+        <span>Список недавних партий</span>
+      </label>
+      <p class="muted" style="font-size:12px;margin-top:10px;line-height:1.5;">
+        Имя, общий рейтинг и место в топе видны всегда.
+      </p>
+    </div>
   `;
 
   screen.querySelector('#f-save').onclick = async (e) => {
@@ -312,6 +346,27 @@ async function renderProfile() {
     }
     e.target.disabled = false;
   };
+
+  // Privacy toggles auto-save on change (no save button — feels lighter)
+  const wireToggle = (id, key) => {
+    const el = screen.querySelector(id);
+    if (!el) return;
+    el.addEventListener('change', async (e) => {
+      try {
+        await api('/me', {
+          method: 'PUT',
+          body: JSON.stringify({ privacy: { [key]: e.target.checked } }),
+        });
+        tg?.HapticFeedback?.selectionChanged?.();
+      } catch (err) {
+        alert('Не сохранилось: ' + err.message);
+        e.target.checked = !e.target.checked;
+      }
+    });
+  };
+  wireToggle('#p-breakdown', 'show_breakdown');
+  wireToggle('#p-heroes', 'show_heroes');
+  wireToggle('#p-recent', 'show_recent');
 }
 
 // — rooms —

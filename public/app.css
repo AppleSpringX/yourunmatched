@@ -805,6 +805,24 @@ label {
 .pool-hero-row .avatar { --size: 32px; }
 .pool-hero-row .hero-name { font-size: 14px; }
 
+/* Privacy toggle rows in profile */
+.priv-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--separator);
+  cursor: pointer;
+  font-size: 14px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+  color: var(--text);
+  margin: 0;
+}
+.priv-row:last-of-type { border-bottom: 0; }
+.priv-row input { width: auto; flex-shrink: 0; }
+
 /* History entry */
 .history-row {
   display: grid;

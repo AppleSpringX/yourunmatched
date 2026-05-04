@@ -29,7 +29,7 @@ export async function meRoutes(app) {
     const user = requireAuth(req, reply);
     if (!user) return;
 
-    const { display_name, signature_hero_id, signature_custom } = req.body || {};
+    const { display_name, signature_hero_id, signature_custom, privacy } = req.body || {};
     const db = getDb();
 
     if (typeof display_name === 'string' && display_name.trim().length > 0) {
@@ -48,6 +48,14 @@ export async function meRoutes(app) {
         'UPDATE users SET signature_hero_id = NULL, signature_custom = ? WHERE tg_id = ?'
       ).run(signature_custom.trim().slice(0, 64) || null, user.tg_id);
     }
+    if (privacy && typeof privacy === 'object') {
+      const fields = ['show_breakdown', 'show_heroes', 'show_recent'];
+      for (const k of fields) {
+        if (typeof privacy[k] === 'boolean') {
+          db.prepare(`UPDATE users SET ${k} = ? WHERE tg_id = ?`).run(privacy[k] ? 1 : 0, user.tg_id);
+        }
+      }
+    }
 
     const updated = db.prepare('SELECT * FROM users WHERE tg_id = ?').get(user.tg_id);
     return { user: enrich(updated) };
@@ -56,8 +64,13 @@ export async function meRoutes(app) {
 
 function enrich(user) {
   const rank = getTopThreeRanks().get(user.tg_id) ?? null;
-  if (!user.signature_hero_id) return { ...user, rank };
+  const privacy = {
+    show_breakdown: !!user.show_breakdown,
+    show_heroes: !!user.show_heroes,
+    show_recent: !!user.show_recent,
+  };
+  if (!user.signature_hero_id) return { ...user, rank, privacy };
   const db = getDb();
   const hero = db.prepare('SELECT id, name, slug, set_name FROM heroes WHERE id = ?').get(user.signature_hero_id);
-  return { ...user, hero, rank };
+  return { ...user, hero, rank, privacy };
 }

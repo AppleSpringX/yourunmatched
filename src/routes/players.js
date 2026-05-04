@@ -51,6 +51,13 @@ export async function playersRoutes(app) {
 
     user.rank = getTopThreeRanks().get(tgId) ?? null;
 
+    // Privacy: profile owner sees everything; other viewers get only sections marked public.
+    const viewerTgId = req.cookies?.sid ? Number(req.unsignCookie(req.cookies.sid).value) : null;
+    const isOwner = viewerTgId === tgId;
+    const canSeeBreakdown = isOwner || user.show_breakdown !== 0;
+    const canSeeHeroes = isOwner || user.show_heroes !== 0;
+    const canSeeRecent = isOwner || user.show_recent !== 0;
+
     const totals = db.prepare(`
       SELECT
         SUM(CASE WHEN g.type = '1v1' THEN gp.points_awarded ELSE 0 END) AS pts_1v1,
@@ -91,6 +98,22 @@ export async function playersRoutes(app) {
       LIMIT 20
     `).all(tgId);
 
-    return { user, totals, heroStats, recent };
+    // Overall points are always public; only the per-mode breakdown is gated by show_breakdown.
+    const publicTotals = canSeeBreakdown
+      ? totals
+      : { pts_overall: totals?.pts_overall || 0, hidden: true };
+
+    return {
+      user,
+      totals: publicTotals,
+      heroStats: canSeeHeroes ? heroStats : null,
+      recent: canSeeRecent ? recent : null,
+      isOwner,
+      privacy: {
+        show_breakdown: !!user.show_breakdown,
+        show_heroes: !!user.show_heroes,
+        show_recent: !!user.show_recent,
+      },
+    };
   });
 }
