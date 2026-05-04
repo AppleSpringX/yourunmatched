@@ -29,6 +29,7 @@ export const config = {
   sessionSecret: process.env.SESSION_SECRET || 'dev-secret-change-me',
   botMode: process.env.BOT_MODE === 'webhook' ? 'webhook' : 'polling',
   webhookUrl: process.env.WEBHOOK_URL || '',
+  adminToken: process.env.ADMIN_TOKEN || '',
 };
 
 if (!config.botToken) {
