@@ -330,6 +330,57 @@ export async function roomsRoutes(app) {
     return { ok: true };
   });
 
+  // Reset finalized results: creator-only, returns a finished room to 'open' state.
+  // Wipes elimination order / winners / points so points come off everyone's totals.
+  // Hero selections, teams, draft state are kept — host just re-records the result.
+  app.post('/:id/reset-results', async (req, reply) => {
+    const user = requireAuth(req, reply);
+    if (!user) return;
+    const db = getDb();
+    const id = Number(req.params.id);
+    const room = db.prepare('SELECT * FROM games WHERE id = ?').get(id);
+    if (!room) return reply.code(404).send({ error: 'not_found' });
+    if (room.creator_tg_id !== user.tg_id) return reply.code(403).send({ error: 'not_creator' });
+    if (room.status !== 'finished') return reply.code(400).send({ error: 'not_finished' });
+
+    transaction(db, () => {
+      db.prepare(`
+        UPDATE game_players
+        SET elimination_order = NULL, is_winner = 0, points_awarded = 0
+        WHERE game_id = ?
+      `).run(id);
+      db.prepare(
+        "UPDATE games SET status = 'open', finished_at = NULL, notes = NULL WHERE id = ?"
+      ).run(id);
+    });
+    return { ok: true };
+  });
+
+  // Cancel an active draft: clears bans/picks and per-player hero ids, returns to lobby.
+  // Useful if host realizes pool is wrong, picks went sideways, etc.
+  app.post('/:id/cancel-draft', async (req, reply) => {
+    const user = requireAuth(req, reply);
+    if (!user) return;
+    const db = getDb();
+    const id = Number(req.params.id);
+    const room = db.prepare('SELECT * FROM games WHERE id = ?').get(id);
+    if (!room) return reply.code(404).send({ error: 'not_found' });
+    if (room.creator_tg_id !== user.tg_id) return reply.code(403).send({ error: 'not_creator' });
+    if (!room.is_draft) return reply.code(400).send({ error: 'not_draft_mode' });
+    if (!room.draft_started_at) return reply.code(400).send({ error: 'draft_not_started' });
+    if (room.status !== 'open') return reply.code(400).send({ error: 'not_open' });
+
+    transaction(db, () => {
+      db.prepare(
+        'UPDATE game_players SET hero_id = NULL, hero_custom = NULL WHERE game_id = ?'
+      ).run(id);
+      db.prepare(
+        "UPDATE games SET draft_started_at = NULL, draft_log = '[]' WHERE id = ?"
+      ).run(id);
+    });
+    return { ok: true };
+  });
+
   // Finalize: only creator. Body: { players: [{tg_id, team?, elimination_order?}], notes? }
   app.post('/:id/finalize', async (req, reply) => {
     const user = requireAuth(req, reply);

@@ -121,11 +121,18 @@ function navigate() {
   const segs = path.split('/').filter(Boolean);
   const route = '/' + (segs[0] || 'players');
 
+  // Unknown route → redirect to top players (fixes 'page not found' splash on entry
+  // when TG passes a stale or junk hash).
+  if (!routes[route]) {
+    location.replace('#/players');
+    return;
+  }
+
   document.querySelectorAll('#tabbar a').forEach((a) => {
     a.classList.toggle('active', a.dataset.tab === segs[0]);
   });
 
-  const handler = routes[route] || renderNotFound;
+  const handler = routes[route];
   screen.innerHTML = '<div class="empty">Загрузка…</div>';
   Promise.resolve(handler(segs.slice(1))).catch((e) => {
     screen.innerHTML = `<div class="empty">Ошибка: ${escape(e.message)}</div>`;
@@ -616,9 +623,18 @@ async function renderRoomDetail(id) {
         `).join('')}
       </div>
       <div class="actions">
+        ${isCreator ? '<button id="reset-results" class="secondary">Сбросить результаты</button>' : ''}
         <a href="#/rooms" class="btn secondary" style="text-align:center;text-decoration:none;display:block;">К списку комнат</a>
       </div>
     `;
+    const resetBtn = screen.querySelector('#reset-results');
+    if (resetBtn) resetBtn.onclick = async () => {
+      if (!confirm('Откатить результаты? Очки будут сняты у всех игроков, комната вернётся в лобби.')) return;
+      try {
+        await api(`/rooms/${id}/reset-results`, { method: 'POST' });
+        renderRoomDetail(id);
+      } catch (e) { alert('Не получилось: ' + e.message); }
+    };
     return;
   }
 
@@ -776,6 +792,7 @@ async function renderDraftRoom(room) {
   await ensureHeroes();
   const me = state.me;
   const draft = room.draft;
+  const isCreator = room.creator_tg_id === me.tg_id;
   const isMyTurn = draft.currentTurn === me.tg_id;
   const currentPlayer = room.players.find((p) => p.tg_id === draft.currentTurn);
   const N = room.target_count;
@@ -873,10 +890,25 @@ async function renderDraftRoom(room) {
     <input class="draft-search" id="draft-search" placeholder="Поиск героя или набора…" value="${escape(state.draftSearch)}" />
     <div class="draft-pool" id="draft-pool">${buildPoolCardsHTML(poolHeroes)}</div>
 
+    ${isCreator ? `
+      <div class="actions" style="margin-top:14px;">
+        <button id="cancel-draft" class="secondary">Отменить драфт и вернуться в лобби</button>
+      </div>
+    ` : ''}
+
     <p class="muted" style="font-size:11px;text-align:center;margin-top:14px;">
       Обновляется автоматически каждые 3 секунды.
     </p>
   `;
+
+  const cancelBtn = screen.querySelector('#cancel-draft');
+  if (cancelBtn) cancelBtn.onclick = async () => {
+    if (!confirm('Отменить драфт? Все баны/пики будут сброшены, игроки потеряют выбранных героев.')) return;
+    try {
+      await api(`/rooms/${room.id}/cancel-draft`, { method: 'POST' });
+      renderRoomDetail(room.id);
+    } catch (e) { alert('Не получилось: ' + e.message); }
+  };
 
   const attachPoolTaps = () => {
     if (!isMyTurn) return;
