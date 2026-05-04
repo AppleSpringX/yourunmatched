@@ -1,0 +1,76 @@
+[
+  { "name": "Alice", "slug": "alice", "set": "Battle of Legends, Vol. 1" },
+  { "name": "King Arthur", "slug": "king-arthur", "set": "Battle of Legends, Vol. 1" },
+  { "name": "Medusa", "slug": "medusa", "set": "Battle of Legends, Vol. 1" },
+  { "name": "Sinbad", "slug": "sinbad", "set": "Battle of Legends, Vol. 1" },
+
+  { "name": "Achilles", "slug": "achilles", "set": "Battle of Legends, Vol. 2" },
+  { "name": "Bloody Mary", "slug": "bloody-mary", "set": "Battle of Legends, Vol. 2" },
+  { "name": "Sun Wukong", "slug": "sun-wukong", "set": "Battle of Legends, Vol. 2" },
+  { "name": "Yennenga", "slug": "yennenga", "set": "Battle of Legends, Vol. 2" },
+
+  { "name": "Robin Hood", "slug": "robin-hood", "set": "Robin Hood vs. Bigfoot" },
+  { "name": "Bigfoot", "slug": "bigfoot", "set": "Robin Hood vs. Bigfoot" },
+
+  { "name": "Sherlock Holmes", "slug": "sherlock-holmes", "set": "Cobble & Fog" },
+  { "name": "Invisible Man", "slug": "invisible-man", "set": "Cobble & Fog" },
+  { "name": "Dracula", "slug": "dracula", "set": "Cobble & Fog" },
+  { "name": "Jekyll & Hyde", "slug": "jekyll-hyde", "set": "Cobble & Fog" },
+
+  { "name": "Buffy Summers", "slug": "buffy", "set": "Buffy the Vampire Slayer" },
+  { "name": "Spike", "slug": "spike", "set": "Buffy the Vampire Slayer" },
+  { "name": "Angel", "slug": "angel", "set": "Buffy the Vampire Slayer" },
+  { "name": "Willow Rosenberg", "slug": "willow", "set": "Buffy the Vampire Slayer" },
+
+  { "name": "Bruce Lee", "slug": "bruce-lee", "set": "Bruce Lee" },
+
+  { "name": "Dr. Sattler", "slug": "sattler", "set": "Jurassic Park: Dr. Sattler vs T. Rex" },
+  { "name": "T. Rex", "slug": "t-rex", "set": "Jurassic Park: Dr. Sattler vs T. Rex" },
+  { "name": "InGen", "slug": "ingen", "set": "Jurassic Park: InGen vs Raptors" },
+  { "name": "Raptors", "slug": "raptors", "set": "Jurassic Park: InGen vs Raptors" },
+
+  { "name": "Houdini", "slug": "houdini", "set": "Houdini & The Genie" },
+  { "name": "Genie", "slug": "genie", "set": "Houdini & The Genie" },
+
+  { "name": "Tomoe Gozen", "slug": "tomoe-gozen", "set": "Tomoe Gozen" },
+
+  { "name": "Annie Christmas", "slug": "annie-christmas", "set": "Slings & Arrows" },
+  { "name": "Beowulf", "slug": "beowulf", "set": "Slings & Arrows" },
+  { "name": "Little Red Riding Hood", "slug": "little-red", "set": "Slings & Arrows" },
+  { "name": "Tarzan", "slug": "tarzan", "set": "Slings & Arrows" },
+
+  { "name": "Hellboy", "slug": "hellboy", "set": "Hellboy" },
+  { "name": "Liz Sherman", "slug": "liz-sherman", "set": "Hellboy" },
+  { "name": "Abe Sapien", "slug": "abe-sapien", "set": "Hellboy" },
+  { "name": "Kate Corrigan", "slug": "kate-corrigan", "set": "Hellboy" },
+
+  { "name": "Geralt of Rivia", "slug": "geralt", "set": "The Witcher" },
+  { "name": "Yennefer of Vengerberg", "slug": "yennefer", "set": "The Witcher" },
+  { "name": "Ciri", "slug": "ciri", "set": "The Witcher" },
+  { "name": "Triss Merigold", "slug": "triss", "set": "The Witcher" },
+
+  { "name": "Black Widow", "slug": "black-widow", "set": "Marvel" },
+  { "name": "Bullseye", "slug": "bullseye", "set": "Marvel" },
+  { "name": "Daredevil", "slug": "daredevil", "set": "Marvel" },
+  { "name": "Spider-Man", "slug": "spider-man", "set": "Marvel" },
+  { "name": "Luke Cage", "slug": "luke-cage", "set": "Marvel" },
+  { "name": "Moon Knight", "slug": "moon-knight", "set": "Marvel" },
+  { "name": "Doctor Strange", "slug": "doctor-strange", "set": "Marvel" },
+  { "name": "Loki", "slug": "loki", "set": "Marvel" },
+  { "name": "Storm", "slug": "storm", "set": "Marvel" },
+  { "name": "Black Panther", "slug": "black-panther", "set": "Marvel" },
+  { "name": "Killmonger", "slug": "killmonger", "set": "Marvel" },
+  { "name": "Shuri", "slug": "shuri", "set": "Marvel" },
+  { "name": "Deadpool", "slug": "deadpool", "set": "Marvel" },
+  { "name": "Hawkeye", "slug": "hawkeye", "set": "Marvel" },
+  { "name": "Squirrel Girl", "slug": "squirrel-girl", "set": "Marvel" },
+  { "name": "Ghost Rider", "slug": "ghost-rider", "set": "Marvel" },
+  { "name": "Scarlet Witch", "slug": "scarlet-witch", "set": "Marvel" },
+  { "name": "Wong", "slug": "wong", "set": "Marvel" },
+  { "name": "Captain Marvel", "slug": "captain-marvel", "set": "Marvel" },
+  { "name": "Captain America", "slug": "captain-america", "set": "Marvel" },
+  { "name": "Iron Man", "slug": "iron-man", "set": "Marvel" },
+  { "name": "Hulk", "slug": "hulk", "set": "Marvel" },
+  { "name": "Thor", "slug": "thor", "set": "Marvel" },
+  { "name": "Spider-Ham", "slug": "spider-ham", "set": "Marvel" }
+]

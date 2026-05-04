@@ -1,0 +1,21 @@
+{
+  "name": "unmatched-app",
+  "version": "0.1.0",
+  "description": "Telegram Mini App for the Unmatched board game community: profiles, rooms, round-robin tournaments, ratings.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "migrate": "node src/db.js"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^9.4.0",
+    "@fastify/static": "^7.0.4",
+    "fastify": "^4.28.1",
+    "grammy": "^1.30.0"
+  }
+}

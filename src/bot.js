@@ -1,0 +1,62 @@
+import { Bot } from 'grammy';
+import { config } from './config.js';
+import { getDb } from './db.js';
+
+export async function startBot(app) {
+  if (!config.botToken) {
+    app.log.warn('[bot] BOT_TOKEN not set, skipping bot startup');
+    return null;
+  }
+
+  const bot = new Bot(config.botToken);
+
+  bot.command('start', (ctx) => {
+    if (!config.webappUrl) {
+      return ctx.reply('Bot is online, but WEBAPP_URL is not configured yet. Set it and restart.');
+    }
+    return ctx.reply('Welcome to the Unmatched community app.', {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: 'Open app', web_app: { url: config.webappUrl } }],
+        ],
+      },
+    });
+  });
+
+  bot.on('message:photo', async (ctx) => {
+    const tgId = ctx.from?.id;
+    if (!tgId) return;
+    const db = getDb();
+    const user = db.prepare('SELECT tg_id FROM users WHERE tg_id = ?').get(tgId);
+    if (!user) {
+      await ctx.reply('Open the app first to register, then send a photo to set as avatar.');
+      return;
+    }
+    const photo = ctx.message.photo[ctx.message.photo.length - 1];
+    db.prepare('UPDATE users SET avatar_file_id = ? WHERE tg_id = ?').run(photo.file_id, tgId);
+    await ctx.reply('Avatar updated.');
+  });
+
+  if (config.botMode === 'polling') {
+    bot.start({ onStart: () => app.log.info('[bot] polling started') });
+  } else {
+    if (!config.webhookUrl) {
+      app.log.warn('[bot] BOT_MODE=webhook but WEBHOOK_URL not set');
+    } else {
+      await bot.api.setWebhook(`${config.webhookUrl}/bot/webhook`);
+      app.log.info(`[bot] webhook set to ${config.webhookUrl}/bot/webhook`);
+    }
+  }
+
+  return bot;
+}
+
+export async function getAvatarUrl(fileId) {
+  if (!fileId || !config.botToken) return null;
+  const res = await fetch(
+    `https://api.telegram.org/bot${config.botToken}/getFile?file_id=${encodeURIComponent(fileId)}`
+  );
+  const data = await res.json();
+  if (!data.ok) return null;
+  return `https://api.telegram.org/file/bot${config.botToken}/${data.result.file_path}`;
+}
