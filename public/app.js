@@ -17,6 +17,7 @@ const state = {
   me: null,
   heroes: null,
   pollTimer: null,
+  draftSearch: '',
 };
 
 function stopPolling() {
@@ -24,6 +25,17 @@ function stopPolling() {
     clearInterval(state.pollTimer);
     state.pollTimer = null;
   }
+}
+
+// Auto-refresh helper: re-runs `fn` every `intervalMs`, but only while the user
+// is still on the same hash-route the polling was started for. Hashchange clears it.
+function startPolling(fn, intervalMs) {
+  stopPolling();
+  const expectedHash = location.hash;
+  state.pollTimer = setInterval(() => {
+    if (location.hash === expectedHash) fn();
+    else stopPolling();
+  }, intervalMs);
 }
 
 async function ensureHeroes() {
@@ -328,18 +340,22 @@ async function renderRoomsList() {
     const full = r.players_count >= r.target_count;
     const tBadge = r.tournament_name
       ? `<span class="tournament-badge">${escape(r.tournament_name)}</span>` : '';
+    const draftBadge = r.is_draft
+      ? `<span class="tournament-badge" style="background:var(--accent-soft);color:var(--accent);">драфт</span>` : '';
     const sub = r.tournament_name ? 'матч турнира' : 'собирает партию';
     return `
       <a href="#/rooms/${r.id}" class="room-row">
         <div class="room-type-badge">${roomTypeLabel(r.type)}</div>
         <div>
-          <div class="room-creator">${escape(r.creator_name)}${tBadge}</div>
+          <div class="room-creator">${escape(r.creator_name)}${tBadge}${draftBadge}</div>
           <div class="room-meta">${sub}</div>
         </div>
         <div class="room-count ${full ? 'full' : ''}">${r.players_count}/${r.target_count}</div>
       </a>
     `;
   }).join('');
+
+  startPolling(renderRoomsList, 5000);
 }
 
 async function openCreateRoom() {
@@ -417,6 +433,9 @@ async function openCreateRoom() {
     };
   };
 
+  // Sets currently expanded in the accordion
+  const openSets = new Set();
+
   const renderPool = () => {
     const grouped = {};
     for (const h of state.heroes) {
@@ -430,62 +449,74 @@ async function openCreateRoom() {
         <button id="pool-all" class="secondary" style="flex:1;font-size:12px;">Все</button>
         <button id="pool-none" class="secondary" style="flex:1;font-size:12px;">Очистить</button>
       </div>
-      <div class="muted" style="font-size:12px;margin-bottom:10px;">
+      <div class="muted" style="font-size:12px;margin-bottom:6px;">
         Выбрано: <b style="color:var(--text);">${pool.size}</b> из ${state.heroes.length}
       </div>
       <div id="pool-list">
-        ${sets.map(([set, heroes]) => `
-          <div class="hero-set-header" data-set="${escape(set)}" style="cursor:pointer;display:flex;align-items:center;gap:8px;">
-            <span>${escape(set)}</span>
-            <span class="muted" style="font-weight:500;text-transform:none;letter-spacing:0;">
-              ${heroes.filter((h) => pool.has(h.id)).length}/${heroes.length}
-            </span>
-          </div>
-          ${heroes.map((h) => `
-            <label class="hero-row" style="cursor:pointer;">
-              <input type="checkbox" data-hero-id="${h.id}" ${pool.has(h.id) ? 'checked' : ''} style="width:auto;" />
-              ${heroAvatar(h.name)}
-              <div>
-                <div class="hero-name">${escape(h.name)}</div>
-                <div class="hero-set">${escape(h.set_name)}</div>
+        ${sets.map(([set, heroes]) => {
+          const isOpen = openSets.has(set);
+          const selectedCount = heroes.filter((h) => pool.has(h.id)).length;
+          const allSelected = selectedCount === heroes.length;
+          const noneSelected = selectedCount === 0;
+          const bulkIcon = allSelected ? '☒' : (noneSelected ? '☐' : '◧');
+          return `
+            <div class="pool-set">
+              <div class="pool-set-header" data-set="${escape(set)}">
+                <span class="chev">${isOpen ? '▼' : '▶'}</span>
+                <span class="name">${escape(set)}</span>
+                <span class="count">${selectedCount}/${heroes.length}</span>
+                <button class="pool-set-bulk" data-set-bulk="${escape(set)}" title="Взять/снять весь набор">${bulkIcon}</button>
               </div>
-              <div></div>
-            </label>
-          `).join('')}
-        `).join('')}
+              ${isOpen ? `
+                <div class="pool-set-body">
+                  ${heroes.map((h) => `
+                    <label class="pool-hero-row">
+                      <input type="checkbox" data-hero-id="${h.id}" ${pool.has(h.id) ? 'checked' : ''} />
+                      ${heroAvatar(h.name)}
+                      <span class="hero-name">${escape(h.name)}</span>
+                    </label>
+                  `).join('')}
+                </div>
+              ` : ''}
+            </div>
+          `;
+        }).join('')}
       </div>
     `;
+
     modal.body.querySelector('#pool-back').onclick = () => { view = 'main'; renderMain(); };
-    modal.body.querySelector('#pool-all').onclick = () => {
-      pool = new Set(allHeroIds);
-      renderPool();
-    };
-    modal.body.querySelector('#pool-none').onclick = () => {
-      pool = new Set();
-      renderPool();
-    };
-    modal.body.querySelectorAll('input[data-hero-id]').forEach((el) => {
-      el.onchange = (e) => {
-        const id = Number(el.dataset.heroId);
-        if (e.target.checked) pool.add(id);
-        else pool.delete(id);
-        // Update count without full rerender
-        const counts = modal.body.querySelectorAll('.hero-set-header span:last-child');
-        const setName = el.closest('label').querySelector('.hero-set').textContent;
-        // Simpler: just rerender — list isn't huge
+    modal.body.querySelector('#pool-all').onclick = () => { pool = new Set(allHeroIds); renderPool(); };
+    modal.body.querySelector('#pool-none').onclick = () => { pool = new Set(); renderPool(); };
+
+    modal.body.querySelectorAll('.pool-set-header').forEach((el) => {
+      el.addEventListener('click', (e) => {
+        if (e.target.closest('.pool-set-bulk')) return; // bulk button has its own handler
+        const set = el.dataset.set;
+        if (openSets.has(set)) openSets.delete(set);
+        else openSets.add(set);
         renderPool();
-      };
+      });
     });
-    // Toggle whole set on header tap
-    modal.body.querySelectorAll('.hero-set-header[data-set]').forEach((el) => {
-      el.onclick = () => {
-        const setName = el.dataset.set;
-        const heroes = state.heroes.filter((h) => h.set_name === setName);
+
+    modal.body.querySelectorAll('.pool-set-bulk').forEach((el) => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const set = el.dataset.setBulk;
+        const heroes = state.heroes.filter((h) => h.set_name === set);
         const allSelected = heroes.every((h) => pool.has(h.id));
         if (allSelected) heroes.forEach((h) => pool.delete(h.id));
         else heroes.forEach((h) => pool.add(h.id));
         renderPool();
-      };
+      });
+    });
+
+    modal.body.querySelectorAll('input[data-hero-id]').forEach((el) => {
+      el.addEventListener('change', (e) => {
+        const id = Number(el.dataset.heroId);
+        if (e.target.checked) pool.add(id);
+        else pool.delete(id);
+        renderPool();
+      });
     });
   };
 
@@ -673,6 +704,12 @@ async function renderRoomDetail(id) {
       } catch (err) { alert('Не получилось: ' + err.message); }
     };
   });
+
+  // Lobby auto-refresh: pick up joins/leaves/hero selections without manual refresh.
+  // Skip polling on finished rooms (data is frozen).
+  if (room.status === 'open') {
+    startPolling(() => renderRoomDetail(id), 4000);
+  }
 }
 
 async function renderDraftRoom(room) {
@@ -700,8 +737,8 @@ async function renderDraftRoom(room) {
   const progressLabel = `${phaseDone + 1} / ${N}`;
 
   // Sort pool: available first, then picked, then banned
-  const poolHeroes = draft.pool.map((id) => heroById(id)).filter(Boolean);
-  poolHeroes.sort((a, b) => {
+  const allPoolHeroes = draft.pool.map((id) => heroById(id)).filter(Boolean);
+  allPoolHeroes.sort((a, b) => {
     const rank = (h) => {
       if (draft.banned.includes(h.id)) return 2;
       if (draft.picks.find((p) => p.hero_id === h.id)) return 1;
@@ -709,6 +746,31 @@ async function renderDraftRoom(room) {
     };
     return rank(a) - rank(b) || a.name.localeCompare(b.name);
   });
+
+  const q = state.draftSearch.toLowerCase().trim();
+  const poolHeroes = q
+    ? allPoolHeroes.filter((h) => h.name.toLowerCase().includes(q) || h.set_name.toLowerCase().includes(q))
+    : allPoolHeroes;
+
+  const buildPoolCardsHTML = (heroes) => heroes.map((h) => {
+    const isBanned = draft.banned.includes(h.id);
+    const pickInfo = draft.picks.find((p) => p.hero_id === h.id);
+    const isPicked = !!pickInfo;
+    const tappable = isMyTurn && !isBanned && !isPicked;
+    const cls = isBanned ? 'banned' : (isPicked ? 'picked' : (tappable ? '' : 'disabled'));
+    const pickerName = isPicked ? room.players.find((p) => p.tg_id === pickInfo.tg_id)?.display_name : '';
+    return `
+      <div class="draft-card ${cls}" data-hero-id="${h.id}">
+        ${heroAvatar(h.name)}
+        <div style="min-width:0;">
+          <div class="card-name">${escape(h.name)}</div>
+          <div class="card-meta">
+            ${isBanned ? 'Забанен' : isPicked ? '→ ' + escape(pickerName) : escape(h.set_name)}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('') || '<div class="empty">Никого не нашёл</div>';
 
   screen.innerHTML = `
     <div class="card" style="display:flex;align-items:center;gap:12px;padding:14px 16px;">
@@ -748,34 +810,16 @@ async function renderDraftRoom(room) {
     </div>
 
     <h3 class="section-title">Пул героев · ${draft.pool.length}</h3>
-    <div class="draft-pool">
-      ${poolHeroes.map((h) => {
-        const isBanned = draft.banned.includes(h.id);
-        const pickInfo = draft.picks.find((p) => p.hero_id === h.id);
-        const isPicked = !!pickInfo;
-        const tappable = isMyTurn && !isBanned && !isPicked;
-        const cls = isBanned ? 'banned' : (isPicked ? 'picked' : (tappable ? '' : 'disabled'));
-        const pickerName = isPicked ? room.players.find((p) => p.tg_id === pickInfo.tg_id)?.display_name : '';
-        return `
-          <div class="draft-card ${cls}" data-hero-id="${h.id}">
-            ${heroAvatar(h.name)}
-            <div style="min-width:0;">
-              <div class="card-name">${escape(h.name)}</div>
-              <div class="card-meta">
-                ${isBanned ? 'Забанен' : isPicked ? '→ ' + escape(pickerName) : escape(h.set_name)}
-              </div>
-            </div>
-          </div>
-        `;
-      }).join('')}
-    </div>
+    <input class="draft-search" id="draft-search" placeholder="Поиск героя или набора…" value="${escape(state.draftSearch)}" />
+    <div class="draft-pool" id="draft-pool">${buildPoolCardsHTML(poolHeroes)}</div>
 
     <p class="muted" style="font-size:11px;text-align:center;margin-top:14px;">
       Обновляется автоматически каждые 3 секунды.
     </p>
   `;
 
-  if (isMyTurn) {
+  const attachPoolTaps = () => {
+    if (!isMyTurn) return;
     screen.querySelectorAll('.draft-card:not(.banned):not(.picked):not(.disabled)').forEach((el) => {
       el.addEventListener('click', async () => {
         const heroId = Number(el.dataset.heroId);
@@ -791,16 +835,31 @@ async function renderDraftRoom(room) {
         }
       });
     });
+  };
+  attachPoolTaps();
+
+  // Search filters pool in-place — no full re-render so the input keeps focus.
+  const searchInput = screen.querySelector('#draft-search');
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+      state.draftSearch = e.target.value;
+      const qq = state.draftSearch.toLowerCase().trim();
+      const filtered = qq
+        ? allPoolHeroes.filter((h) => h.name.toLowerCase().includes(qq) || h.set_name.toLowerCase().includes(qq))
+        : allPoolHeroes;
+      const poolEl = screen.querySelector('#draft-pool');
+      poolEl.innerHTML = buildPoolCardsHTML(filtered);
+      attachPoolTaps();
+    });
+    // Pause polling while typing so the screen doesn't get rebuilt out from under us.
+    searchInput.addEventListener('focus', stopPolling);
+    searchInput.addEventListener('blur', () => {
+      startPolling(() => renderRoomDetail(room.id), 3000);
+    });
   }
 
-  // Polling for live updates while draft is in progress.
-  state.pollTimer = setInterval(() => {
-    if (location.hash === `#/rooms/${room.id}`) {
-      renderRoomDetail(room.id);
-    } else {
-      stopPolling();
-    }
-  }, 3000);
+  // Live updates during draft.
+  startPolling(() => renderRoomDetail(room.id), 3000);
 }
 
 async function openHeroPicker(roomId, myPlayer) {
@@ -1287,6 +1346,11 @@ async function renderTournamentDetail(id) {
       renderTournamentDetail(id);
     } catch (e) { alert('Не получилось: ' + e.message); }
   };
+
+  // Tournaments evolve as matches finalize — keep standings fresh.
+  if (!isFinished) {
+    startPolling(() => renderTournamentDetail(id), 5000);
+  }
 }
 
 // — modal helper —

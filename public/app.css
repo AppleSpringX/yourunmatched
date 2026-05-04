@@ -744,6 +744,67 @@ label {
   color: var(--soft);
 }
 
+.draft-search {
+  margin: 8px 0 12px;
+  width: 100%;
+}
+
+/* Pool picker accordion (create-room flow) */
+.pool-set {
+  border-bottom: 1px solid var(--separator);
+}
+.pool-set:last-child { border-bottom: 0; }
+.pool-set-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 4px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: rgba(168, 38, 46, 0.08);
+}
+.pool-set-header .chev {
+  font-size: 10px;
+  color: var(--muted);
+  width: 14px;
+  flex-shrink: 0;
+}
+.pool-set-header .name {
+  flex: 1;
+  font-weight: 700;
+  font-size: 14px;
+}
+.pool-set-header .count {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  margin-right: 4px;
+}
+.pool-set-bulk {
+  background: transparent;
+  color: var(--accent);
+  padding: 4px 12px;
+  font-size: 18px;
+  font-weight: 600;
+  border-radius: 6px;
+  letter-spacing: 0;
+}
+.pool-set-body {
+  padding: 0 0 8px 18px;
+}
+.pool-hero-row {
+  display: grid;
+  grid-template-columns: 22px 36px 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 4px;
+  cursor: pointer;
+  user-select: none;
+}
+.pool-hero-row input { width: auto; }
+.pool-hero-row .avatar { --size: 32px; }
+.pool-hero-row .hero-name { font-size: 14px; }
+
 /* History entry */
 .history-row {
   display: grid;
