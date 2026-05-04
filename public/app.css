@@ -549,6 +549,97 @@ label {
 }
 .radio-row input { width: auto; }
 
+/* Tournament-related */
+.tournament-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--separator);
+  text-decoration: none;
+  color: inherit;
+}
+.tournament-row:last-child { border-bottom: 0; }
+.tournament-name { font-weight: 700; font-size: 15px; }
+.tournament-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.tournament-progress {
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--soft);
+  text-align: right;
+}
+.tournament-progress.done { color: var(--gold); }
+
+.tournament-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--gold-soft);
+  color: var(--gold);
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.standing-row {
+  display: grid;
+  grid-template-columns: 32px 40px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--separator);
+}
+.standing-row:last-child { border-bottom: 0; }
+.standing-pos {
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  color: var(--muted);
+  font-size: 16px;
+  text-align: center;
+}
+.standing-pos.gold { color: var(--gold); font-size: 18px; }
+
+.match-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--separator);
+  text-decoration: none;
+  color: inherit;
+}
+.match-row:last-child { border-bottom: 0; }
+.match-pairing { font-weight: 600; font-size: 14px; }
+.match-pairing .vs { color: var(--muted); font-weight: 400; margin: 0 6px; }
+.match-pairing .winner { color: var(--accent); }
+.match-status {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+}
+.match-status.open { color: var(--muted); }
+.match-status.done { color: var(--gold); }
+
+/* Player multi-select for tournament create */
+.player-pick-row {
+  display: grid;
+  grid-template-columns: 24px 32px 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--separator);
+  cursor: pointer;
+}
+.player-pick-row.selected { background: var(--accent-soft); border-radius: 8px; }
+.player-pick-row input { width: auto; }
+
 /* History entry */
 .history-row {
   display: grid;

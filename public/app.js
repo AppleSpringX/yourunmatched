@@ -297,12 +297,15 @@ async function renderRoomsList() {
   }
   list.innerHTML = rooms.map((r) => {
     const full = r.players_count >= r.target_count;
+    const tBadge = r.tournament_name
+      ? `<span class="tournament-badge">${escape(r.tournament_name)}</span>` : '';
+    const sub = r.tournament_name ? 'матч турнира' : 'собирает партию';
     return `
       <a href="#/rooms/${r.id}" class="room-row">
         <div class="room-type-badge">${roomTypeLabel(r.type)}</div>
         <div>
-          <div class="room-creator">${escape(r.creator_name)}</div>
-          <div class="room-meta">собирает партию</div>
+          <div class="room-creator">${escape(r.creator_name)}${tBadge}</div>
+          <div class="room-meta">${sub}</div>
         </div>
         <div class="room-count ${full ? 'full' : ''}">${r.players_count}/${r.target_count}</div>
       </a>
@@ -420,15 +423,21 @@ async function renderRoomDetail(id) {
     participants = `<div class="card">${room.players.map(renderPlayer).join('')}</div>`;
   }
 
+  const isTournamentMatch = !!room.tournament_id;
+
   let actionsHtml = '<div class="actions">';
   if (myPlayer) {
     actionsHtml += `<button id="pick-hero" class="secondary">${(myPlayer.hero_name || myPlayer.hero_custom) ? 'Сменить героя' : 'Выбрать героя'}</button>`;
     if (isCreator) {
       actionsHtml += `<button id="finalize" ${full && allPicked ? '' : 'disabled'}>Записать результаты</button>`;
     }
-    actionsHtml += `<button id="leave" class="secondary">${isCreator ? 'Удалить комнату' : 'Покинуть комнату'}</button>`;
+    if (!isTournamentMatch) {
+      actionsHtml += `<button id="leave" class="secondary">${isCreator ? 'Удалить комнату' : 'Покинуть комнату'}</button>`;
+    }
   } else if (full) {
     actionsHtml += `<button disabled>Комната заполнена</button>`;
+  } else if (isTournamentMatch) {
+    actionsHtml += `<button disabled>Турнирный матч (только для участников)</button>`;
   } else {
     actionsHtml += `<button id="join">Войти в комнату</button>`;
   }
@@ -438,11 +447,14 @@ async function renderRoomDetail(id) {
     ? `Ждём игроков (${room.players.length}/${room.target_count})`
     : (!allPicked ? 'Все на месте, остался выбор героев' : 'Готово к старту — хост может записать результат');
 
+  const tournamentLink = room.tournament_name
+    ? `<a href="#/tournaments/${room.tournament_id}" class="tournament-badge" style="text-decoration:none;display:inline-block;">${escape(room.tournament_name)}</a>`
+    : '';
   screen.innerHTML = `
     <div class="card" style="display:flex;align-items:center;gap:12px;padding:14px 16px;">
       <div class="room-type-badge">${roomTypeLabel(room.type)}</div>
-      <div>
-        <div style="font-weight:700;">${roomTypeLabel(room.type)} · комната #${room.id}</div>
+      <div style="flex:1;">
+        <div style="font-weight:700;">${roomTypeLabel(room.type)} · комната #${room.id} ${tournamentLink}</div>
         <div class="muted" style="font-size:12px;margin-top:2px;">${escape(stateText)}</div>
       </div>
     </div>
@@ -779,10 +791,178 @@ function renderFinalizeFFA(room) {
   });
 }
 
-// — tournaments (placeholder) —
+// — tournaments —
 
-async function renderTournaments() {
-  screen.innerHTML = `<div class="empty">Турниры подъедут после комнат.</div>`;
+async function renderTournaments([id]) {
+  if (!id) return renderTournamentsList();
+  return renderTournamentDetail(id);
+}
+
+async function renderTournamentsList() {
+  const { tournaments } = await api('/tournaments');
+  screen.innerHTML = `
+    <div class="row" style="margin-bottom:12px;">
+      <button id="new-tournament" style="width:100%;">+ Создать турнир</button>
+    </div>
+    <div class="card" id="t-list"></div>
+  `;
+  screen.querySelector('#new-tournament').onclick = openCreateTournament;
+
+  const list = screen.querySelector('#t-list');
+  if (!tournaments.length) {
+    list.innerHTML = '<div class="empty">Турниров пока нет. Создай первый — собери народ.</div>';
+    return;
+  }
+  list.innerHTML = tournaments.map((t) => {
+    const done = t.matches_done >= t.matches_total && t.matches_total > 0;
+    return `
+      <a href="#/tournaments/${t.id}" class="tournament-row">
+        <div>
+          <div class="tournament-name">${escape(t.name)}</div>
+          <div class="tournament-meta">
+            ${t.status === 'finished' ? 'Завершён · ' : ''}
+            ${t.players_count} игрок(а) · 1v1 round-robin
+          </div>
+        </div>
+        <div class="tournament-progress ${done ? 'done' : ''}">${t.matches_done}/${t.matches_total}</div>
+      </a>
+    `;
+  }).join('');
+}
+
+async function openCreateTournament() {
+  const { players: allPlayers } = await api('/players');
+  let name = '';
+  const selected = new Set([state.me.tg_id]); // creator pre-selected
+
+  const modal = openModal({ title: 'Создать турнир', body: '' });
+
+  const refresh = () => {
+    modal.body.innerHTML = `
+      <label>Название</label>
+      <input id="t-name" placeholder="Например: Майский кубок" maxlength="80" value="${escape(name)}" />
+
+      <label>Формат</label>
+      <div class="muted" style="font-size:13px;margin-bottom:8px;">
+        1v1 · круговая (каждый с каждым)
+      </div>
+
+      <label>Участники (${selected.size}, минимум 3)</label>
+      <div id="t-players" style="max-height:40vh;overflow-y:auto;border:1px solid var(--separator);border-radius:var(--radius-sm);padding:4px 8px;">
+        ${allPlayers.map((p) => `
+          <div class="player-pick-row ${selected.has(p.tg_id) ? 'selected' : ''}" data-id="${p.tg_id}">
+            <input type="checkbox" ${selected.has(p.tg_id) ? 'checked' : ''} ${p.tg_id === state.me.tg_id ? 'disabled' : ''} />
+            <div class="avatar" style="${playerAvatarStyle(p)};width:28px;height:28px;"></div>
+            <div>
+              <div class="player-name" style="font-size:14px;">${medalSpan(p.rank)}${escape(p.display_name)}${p.tg_id === state.me.tg_id ? ' <span class="muted" style="font-size:11px;font-weight:400;">(ты)</span>' : ''}</div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+
+      <div class="row" style="margin-top:14px;gap:8px;">
+        <button id="t-cancel" class="secondary" style="flex:1;">Отмена</button>
+        <button id="t-create" style="flex:2;">Создать (${selected.size * (selected.size - 1) / 2} матчей)</button>
+      </div>
+    `;
+    modal.body.querySelector('#t-name').oninput = (e) => { name = e.target.value; };
+    modal.body.querySelectorAll('.player-pick-row').forEach((el) => {
+      const tgId = Number(el.dataset.id);
+      if (tgId === state.me.tg_id) return; // creator can't deselect self
+      el.onclick = () => {
+        if (selected.has(tgId)) selected.delete(tgId);
+        else selected.add(tgId);
+        refresh();
+      };
+    });
+    modal.body.querySelector('#t-cancel').onclick = () => modal.close();
+    modal.body.querySelector('#t-create').onclick = async (e) => {
+      if (!name.trim()) { alert('Впиши название'); return; }
+      if (selected.size < 3) { alert('Минимум 3 участника'); return; }
+      e.target.disabled = true;
+      try {
+        const r = await api('/tournaments', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: name.trim(),
+            format: 'round_robin',
+            game_type: '1v1',
+            players: [...selected],
+          }),
+        });
+        modal.close();
+        location.hash = `#/tournaments/${r.id}`;
+      } catch (err) {
+        alert('Не получилось: ' + err.message);
+        e.target.disabled = false;
+      }
+    };
+  };
+  refresh();
+}
+
+async function renderTournamentDetail(id) {
+  const { tournament, standings, matches } = await api(`/tournaments/${id}`);
+  const isCreator = tournament.creator_tg_id === state.me.tg_id;
+  const isFinished = tournament.status === 'finished';
+  const allDone = matches.every((m) => m.status === 'finished');
+
+  screen.innerHTML = `
+    <div class="card" style="padding:16px;">
+      <div style="font-weight:800;font-size:18px;letter-spacing:-0.01em;">${escape(tournament.name)}</div>
+      <div class="muted" style="font-size:12px;margin-top:4px;">
+        1v1 round-robin · хост: ${escape(tournament.creator_name)}${isFinished ? ' · завершён' : ''}
+      </div>
+    </div>
+
+    <h3 class="section-title">Турнирная таблица</h3>
+    <div class="card">
+      ${standings.map((s, i) => `
+        <div class="standing-row">
+          <div class="standing-pos ${i < 3 ? 'gold' : ''}">${medalEmoji(i + 1) || (i + 1)}</div>
+          <div class="avatar" style="${playerAvatarStyle(s)};width:32px;height:32px;"></div>
+          <div>
+            <div class="player-name" style="font-size:14px;">${medalSpan(s.rank)}${escape(s.display_name)}</div>
+            <div class="player-meta">${s.games_played || 0} матч(ей) · ${s.wins || 0} побед</div>
+          </div>
+          <div class="points ${s.points ? '' : 'dim'}">${s.points || 0}</div>
+        </div>
+      `).join('')}
+    </div>
+
+    <h3 class="section-title">Матчи</h3>
+    <div class="card">
+      ${matches.map((m) => {
+        const finished = m.status === 'finished';
+        const p1 = `<span class="${finished && m.p1_won ? 'winner' : ''}">${escape(m.p1_name)}</span>`;
+        const p2 = `<span class="${finished && m.p2_won ? 'winner' : ''}">${escape(m.p2_name)}</span>`;
+        return `
+          <a href="#/rooms/${m.id}" class="match-row">
+            <div>
+              <div class="match-pairing">${p1}<span class="vs">vs</span>${p2}</div>
+              <div class="match-status ${finished ? 'done' : 'open'}">${finished ? 'Завершён' : 'Не сыгран'}</div>
+            </div>
+            <div style="color:var(--muted);font-size:18px;">›</div>
+          </a>
+        `;
+      }).join('')}
+    </div>
+
+    ${isCreator && !isFinished && allDone ? `
+      <div class="actions">
+        <button id="t-finish">Закрыть турнир</button>
+      </div>
+    ` : ''}
+  `;
+
+  const finBtn = screen.querySelector('#t-finish');
+  if (finBtn) finBtn.onclick = async () => {
+    if (!confirm('Закрыть турнир? После закрытия таблица фиксируется.')) return;
+    try {
+      await api(`/tournaments/${id}/finish`, { method: 'POST' });
+      renderTournamentDetail(id);
+    } catch (e) { alert('Не получилось: ' + e.message); }
+  };
 }
 
 // — modal helper —

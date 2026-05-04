@@ -10,9 +10,11 @@ export async function roomsRoutes(app) {
     const rooms = db.prepare(`
       SELECT g.id, g.type, g.creator_tg_id, g.notes, g.created_at, g.tournament_id,
              u.display_name AS creator_name,
+             t.name AS tournament_name,
              (SELECT COUNT(*) FROM game_players WHERE game_id = g.id) AS players_count
       FROM games g
       JOIN users u ON u.tg_id = g.creator_tg_id
+      LEFT JOIN tournaments t ON t.id = g.tournament_id
       WHERE g.status = 'open'
       ORDER BY g.created_at DESC
     `).all();
@@ -46,7 +48,12 @@ export async function roomsRoutes(app) {
   app.get('/:id', async (req, reply) => {
     if (!requireAuth(req, reply)) return;
     const db = getDb();
-    const room = db.prepare('SELECT * FROM games WHERE id = ?').get(Number(req.params.id));
+    const room = db.prepare(`
+      SELECT g.*, t.name AS tournament_name
+      FROM games g
+      LEFT JOIN tournaments t ON t.id = g.tournament_id
+      WHERE g.id = ?
+    `).get(Number(req.params.id));
     if (!room) return reply.code(404).send({ error: 'not_found' });
     const players = db.prepare(`
       SELECT gp.tg_id, gp.team, gp.hero_id, gp.hero_custom, gp.elimination_order,
@@ -73,6 +80,7 @@ export async function roomsRoutes(app) {
     const room = db.prepare('SELECT * FROM games WHERE id = ?').get(id);
     if (!room) return reply.code(404).send({ error: 'not_found' });
     if (room.status !== 'open') return reply.code(400).send({ error: 'not_open' });
+    if (room.tournament_id) return reply.code(400).send({ error: 'tournament_match' });
     if (db.prepare('SELECT 1 FROM game_players WHERE game_id = ? AND tg_id = ?').get(id, user.tg_id)) {
       return reply.code(400).send({ error: 'already_in' });
     }
@@ -97,6 +105,7 @@ export async function roomsRoutes(app) {
     const room = db.prepare('SELECT * FROM games WHERE id = ?').get(id);
     if (!room) return reply.code(404).send({ error: 'not_found' });
     if (room.status !== 'open') return reply.code(400).send({ error: 'not_open' });
+    if (room.tournament_id) return reply.code(400).send({ error: 'tournament_match' });
     if (room.creator_tg_id === user.tg_id) {
       db.prepare('DELETE FROM games WHERE id = ?').run(id);
       return { ok: true, deleted: true };

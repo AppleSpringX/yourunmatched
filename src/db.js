@@ -109,9 +109,16 @@ function migrate(db) {
       PRIMARY KEY (game_id, tg_id)
     );
 
+    CREATE TABLE IF NOT EXISTS tournament_players (
+      tournament_id INTEGER NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+      tg_id INTEGER NOT NULL REFERENCES users(tg_id),
+      PRIMARY KEY (tournament_id, tg_id)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_games_type_status ON games(type, status);
     CREATE INDEX IF NOT EXISTS idx_game_players_tg ON game_players(tg_id);
     CREATE INDEX IF NOT EXISTS idx_games_tournament ON games(tournament_id);
+    CREATE INDEX IF NOT EXISTS idx_tournament_players_tg ON tournament_players(tg_id);
   `);
 }
 
