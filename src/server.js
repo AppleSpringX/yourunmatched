@@ -14,7 +14,18 @@ const publicDir = resolve(__dirname, '..', 'public');
 const app = Fastify({ logger: { level: 'info' } });
 
 await app.register(fastifyCookie, { secret: config.sessionSecret });
-await app.register(fastifyStatic, { root: publicDir, prefix: '/' });
+await app.register(fastifyStatic, {
+  root: publicDir,
+  prefix: '/',
+  // No long-term caching during active development — ETag/If-None-Match still avoids transfer.
+  cacheControl: true,
+  maxAge: 0,
+  etag: true,
+  lastModified: true,
+  setHeaders(res) {
+    res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+  },
+});
 
 initDb();
 registerRoutes(app);
