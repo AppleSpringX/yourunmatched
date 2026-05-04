@@ -134,7 +134,7 @@ async function renderPlayers() {
     const heroLabel = p.hero_name || p.signature_custom || '—';
     return `
       <a href="#/player/${p.tg_id}" class="player-row" style="text-decoration:none;color:inherit;">
-        <div class="avatar" style="${playerAvatarStyle(p)}"></div>
+        ${playerAvatar(p)}
         <div>
           <div class="player-name">${medalSpan(p.rank)}${escape(p.display_name)}</div>
           <div class="player-meta">${escape(heroLabel)} · ${formatGamesCount(p.games_played)}</div>
@@ -151,7 +151,7 @@ async function renderPlayerDetail([tgId]) {
   const heroLabel = user.hero_name || user.signature_custom || 'герой не выбран';
   screen.innerHTML = `
     <div class="card profile-hero">
-      <div class="avatar" style="${playerAvatarStyle(user)}"></div>
+      ${playerAvatar(user)}
       <div>
         <div class="name">${medalSpan(user.rank)}${escape(user.display_name)}</div>
         <div class="sub">${escape(heroLabel)}</div>
@@ -176,7 +176,7 @@ async function renderPlayerDetail([tgId]) {
       <div class="card">
         ${heroStats.map((h) => `
           <div class="player-row">
-            <div class="avatar" style="${heroAvatarStyle(h.hero_slug)}"></div>
+            ${heroAvatar(h.hero_name)}
             <div>
               <div class="player-name">${escape(h.hero_name)}</div>
               <div class="player-meta">${formatGamesCount(h.games)} · ${Math.round((h.wins / h.games) * 100)}% побед</div>
@@ -229,7 +229,7 @@ async function renderProfile() {
 
   screen.innerHTML = `
     <div class="card profile-hero">
-      <div class="avatar" style="${playerAvatarStyle(me)}"></div>
+      ${playerAvatar(me)}
       <div>
         <div class="name">${medalSpan(me.rank)}${escape(me.display_name || '')}</div>
         <div class="sub">${escape(me.hero?.name || me.signature_custom || 'герой не выбран')}</div>
@@ -381,7 +381,7 @@ async function renderRoomDetail(id) {
       <div class="card">
         ${[...room.players].sort((a, b) => b.points_awarded - a.points_awarded).map((p) => `
           <div class="player-row">
-            <div class="avatar" style="${playerAvatarStyle(p)}"></div>
+            ${playerAvatar(p)}
             <div>
               <div class="player-name">${p.is_winner ? '🏆 ' : ''}${medalSpan(p.rank)}${escape(p.display_name)}</div>
               <div class="player-meta">${escape(p.hero_name || p.hero_custom || '?')}</div>
@@ -401,7 +401,7 @@ async function renderRoomDetail(id) {
     const hero = p.hero_name || p.hero_custom || '<span style="color:var(--muted)">— герой не выбран —</span>';
     return `
       <div class="player-row">
-        <div class="avatar" style="${playerAvatarStyle(p)}"></div>
+        ${playerAvatar(p)}
         <div>
           <div class="player-name">${medalSpan(p.rank)}${escape(p.display_name)}${p.tg_id === room.creator_tg_id ? ' <span class="muted" style="font-weight:500;font-size:12px;">· хост</span>' : ''}</div>
           <div class="player-meta">${hero}</div>
@@ -536,7 +536,7 @@ async function openHeroPicker(roomId, myPlayer) {
         const wr = s ? Math.round((s.wins / s.games) * 100) : null;
         return `
           <div class="hero-row ${selectedId === h.id ? 'selected' : ''}" data-id="${h.id}">
-            <div class="avatar" style="${heroAvatarStyle(h.slug)}"></div>
+            ${heroAvatar(h.name)}
             <div>
               <div class="hero-name">${escape(h.name)}</div>
               <div class="hero-set">${escape(h.set_name)}</div>
@@ -776,7 +776,7 @@ function renderFinalizeFFA(room) {
   const list = screen.querySelector('#ffa-list');
   list.innerHTML = room.players.map((p) => `
     <div class="fin-row">
-      <div class="avatar" style="${playerAvatarStyle(p)}"></div>
+      ${playerAvatar(p)}
       <div>
         <div class="player-name">${medalSpan(p.rank)}${escape(p.display_name)}</div>
         <div class="player-meta">${escape(p.hero_name || p.hero_custom || '?')}</div>
@@ -858,7 +858,7 @@ async function openCreateTournament() {
         ${allPlayers.map((p) => `
           <div class="player-pick-row ${selected.has(p.tg_id) ? 'selected' : ''}" data-id="${p.tg_id}">
             <input type="checkbox" ${selected.has(p.tg_id) ? 'checked' : ''} ${p.tg_id === state.me.tg_id ? 'disabled' : ''} />
-            <div class="avatar" style="${playerAvatarStyle(p)};width:28px;height:28px;"></div>
+            ${playerAvatar(p, 28)}
             <div>
               <div class="player-name" style="font-size:14px;">${medalSpan(p.rank)}${escape(p.display_name)}${p.tg_id === state.me.tg_id ? ' <span class="muted" style="font-size:11px;font-weight:400;">(ты)</span>' : ''}</div>
             </div>
@@ -926,7 +926,7 @@ async function renderTournamentDetail(id) {
       ${standings.map((s, i) => `
         <div class="standing-row">
           <div class="standing-pos ${i < 3 ? 'gold' : ''}">${medalEmoji(i + 1) || (i + 1)}</div>
-          <div class="avatar" style="${playerAvatarStyle(s)};width:32px;height:32px;"></div>
+          ${playerAvatar(s, 32)}
           <div>
             <div class="player-name" style="font-size:14px;">${medalSpan(s.rank)}${escape(s.display_name)}</div>
             <div class="player-meta">${s.games_played || 0} матч(ей) · ${s.wins || 0} побед</div>
@@ -1002,15 +1002,27 @@ function renderNotFound() {
 
 // — small helpers —
 
-function playerAvatarStyle(user) {
-  if (user.avatar_file_id) return `background-image:url(/api/avatar/${user.tg_id})`;
-  if (user.hero_slug) return `background-image:url(/heroes/${user.hero_slug}.webp)`;
-  return `background:var(--accent-soft)`;
+// Avatar rendering: returns the full <div class="avatar"> HTML.
+// If a portrait/uploaded image exists → background-image. Otherwise → letter via CSS ::before.
+// Hero portraits don't ship yet (Phase 4), so heroes always render letter for now.
+function avatarTag({ src, letter, size }) {
+  const styleParts = [];
+  if (size) styleParts.push(`--size:${size}px`);
+  if (src) styleParts.push(`background-image:url(${src})`);
+  const style = styleParts.length ? ` style="${styleParts.join(';')}"` : '';
+  const dl = (!src && letter) ? ` data-letter="${escape(letter)}"` : '';
+  return `<div class="avatar"${dl}${style}></div>`;
 }
 
-function heroAvatarStyle(slug) {
-  if (slug) return `background-image:url(/heroes/${slug}.webp)`;
-  return `background:var(--bg-tile);background-image:none;`;
+function playerAvatar(user, size) {
+  if (user?.avatar_file_id) return avatarTag({ src: `/api/avatar/${user.tg_id}`, size });
+  const letter = (user?.display_name || '?').slice(0, 1).toUpperCase();
+  return avatarTag({ letter, size });
+}
+
+function heroAvatar(name, size) {
+  const letter = (name || '?').slice(0, 1).toUpperCase();
+  return avatarTag({ letter, size });
 }
 
 function gameTypeLabel(type) {

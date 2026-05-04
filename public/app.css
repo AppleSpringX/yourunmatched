@@ -192,15 +192,30 @@ button.secondary {
 .player-row:last-child { border-bottom: 0; }
 
 .avatar {
-  width: 40px;
-  height: 40px;
+  --size: 40px;
+  width: var(--size);
+  height: var(--size);
   border-radius: 50%;
-  background: var(--bg-tile);
+  background: var(--accent-soft);
   background-size: cover;
   background-position: center;
   flex-shrink: 0;
   position: relative;
   border: 1px solid var(--separator);
+  font-size: calc(var(--size) * 0.42);
+}
+.avatar[data-letter]::before {
+  content: attr(data-letter);
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  pointer-events: none;
 }
 .player-name {
   font-weight: 600;
@@ -290,8 +305,7 @@ label {
   padding: 16px;
 }
 .profile-hero .avatar {
-  width: 64px;
-  height: 64px;
+  --size: 64px;
 }
 .profile-hero .name {
   font-size: 19px;
@@ -476,11 +490,11 @@ label {
   letter-spacing: 0.05em;
   color: var(--muted);
   font-weight: 700;
-  padding: 12px 4px 4px;
-  background: var(--card);
-  position: sticky;
-  top: 0;
+  padding: 14px 4px 6px;
+  border-bottom: 1px solid var(--separator);
+  margin-bottom: 4px;
 }
+.hero-set-header:first-child { padding-top: 4px; }
 
 /* Type chooser (create room) */
 .type-grid {
