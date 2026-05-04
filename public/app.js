@@ -3,6 +3,9 @@
 const tg = window.Telegram?.WebApp;
 tg?.ready();
 tg?.expand();
+
+// Bot username for deep links (must match what's set in BotFather).
+const BOT_USERNAME = 'yourunmatchedbot';
 // Force light parchment theme on TG header/background.
 // Color must match --bg in app.css to avoid seam between TG chrome and our content.
 try {
@@ -720,6 +723,9 @@ async function renderRoomDetail(id) {
     if (showHeroPick) {
       actionsHtml += `<button id="pick-hero" class="secondary">${(myPlayer.hero_name || myPlayer.hero_custom) ? 'Сменить героя' : 'Выбрать героя'}</button>`;
     }
+    if (!isTournamentMatch && !full) {
+      actionsHtml += `<button id="share-room" class="secondary">📤 Поделиться комнатой</button>`;
+    }
     if (room.type === '2v2' && isCreator && !inDraft && !isTournamentMatch) {
       actionsHtml += `<button id="randomize-teams" class="secondary">🎲 Рандом команд</button>`;
     }
@@ -803,6 +809,9 @@ async function renderRoomDetail(id) {
 
   const finBtn = screen.querySelector('#finalize');
   if (finBtn) finBtn.onclick = () => { location.hash = `#/rooms/${id}/finalize`; };
+
+  const shareBtn = screen.querySelector('#share-room');
+  if (shareBtn) shareBtn.onclick = () => shareRoom(id);
 
   const randBtn = screen.querySelector('#randomize-teams');
   if (randBtn) randBtn.onclick = async () => {
@@ -1499,9 +1508,10 @@ async function renderTournamentDetail(id) {
       }).join('')}
     </div>
 
-    ${isCreator && !isFinished && allDone ? `
+    ${isCreator ? `
       <div class="actions">
-        <button id="t-finish">Закрыть турнир</button>
+        ${!isFinished && allDone ? '<button id="t-finish">Закрыть турнир</button>' : ''}
+        <button id="t-delete" class="secondary" style="color:var(--accent);">Удалить турнир</button>
       </div>
     ` : ''}
   `;
@@ -1512,6 +1522,19 @@ async function renderTournamentDetail(id) {
     try {
       await api(`/tournaments/${id}/finish`, { method: 'POST' });
       renderTournamentDetail(id);
+    } catch (e) { alert('Не получилось: ' + e.message); }
+  };
+
+  const delBtn = screen.querySelector('#t-delete');
+  if (delBtn) delBtn.onclick = async () => {
+    const msg = isFinished
+      ? 'Удалить турнир окончательно? Сыгранные матчи останутся в истории игроков, но привязка к турниру пропадёт.'
+      : 'Удалить турнир? Несыгранные матчи будут стёрты, сыгранные останутся в истории.';
+    if (!confirm(msg)) return;
+    try {
+      await api(`/tournaments/${id}/delete`, { method: 'POST' });
+      tg?.HapticFeedback?.notificationOccurred?.('success');
+      location.hash = '#/tournaments';
     } catch (e) { alert('Не получилось: ' + e.message); }
   };
 
@@ -1602,12 +1625,35 @@ function escape(s) {
   }[c]));
 }
 
+async function shareRoom(roomId) {
+  const url = `https://t.me/${BOT_USERNAME}/app?startapp=room_${roomId}`;
+  // Try Telegram's native share, fall back to clipboard, fall back to prompt
+  if (tg?.openTelegramLink) {
+    const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent('Заходи в комнату Unmatched')}`;
+    tg.openTelegramLink(shareUrl);
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    alert('Ссылка скопирована:\n' + url);
+  } catch {
+    prompt('Скопируй ссылку:', url);
+  }
+}
+
 (async () => {
   const ok = await authenticate();
   if (!ok) {
     screen.innerHTML = `<div class="empty">Открой через бота: команда /start, кнопка «Играть».</div>`;
     return;
   }
-  if (!location.hash) location.hash = '#/players';
+
+  // Honor deep-link start_param: ?startapp=room_123 → open that room directly
+  const startParam = tg?.initDataUnsafe?.start_param;
+  if (startParam && /^room_\d+$/.test(startParam)) {
+    location.hash = `#/rooms/${startParam.slice(5)}`;
+  } else if (!location.hash) {
+    location.hash = '#/players';
+  }
   navigate();
 })();

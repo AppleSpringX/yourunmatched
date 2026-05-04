@@ -150,4 +150,28 @@ export async function tournamentsRoutes(app) {
     db.prepare("UPDATE tournaments SET status = 'finished' WHERE id = ?").run(id);
     return { ok: true };
   });
+
+  // Delete tournament (creator only). Detaches finished games (sets tournament_id=NULL
+  // so their results stick around as standalone matches), deletes still-open matches.
+  app.post('/:id/delete', async (req, reply) => {
+    const user = requireAuth(req, reply);
+    if (!user) return;
+    const db = getDb();
+    const id = Number(req.params.id);
+    const t = db.prepare('SELECT * FROM tournaments WHERE id = ?').get(id);
+    if (!t) return reply.code(404).send({ error: 'not_found' });
+    if (t.creator_tg_id !== user.tg_id) return reply.code(403).send({ error: 'not_creator' });
+
+    transaction(db, () => {
+      // Open matches that were never played: just delete them outright.
+      db.prepare("DELETE FROM games WHERE tournament_id = ? AND status = 'open'").run(id);
+      // Finished matches: keep history, just unlink from the tournament.
+      db.prepare(
+        "UPDATE games SET tournament_id = NULL WHERE tournament_id = ? AND status = 'finished'"
+      ).run(id);
+      db.prepare('DELETE FROM tournament_players WHERE tournament_id = ?').run(id);
+      db.prepare('DELETE FROM tournaments WHERE id = ?').run(id);
+    });
+    return { ok: true };
+  });
 }
