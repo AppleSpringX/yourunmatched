@@ -482,9 +482,13 @@ async function openCreateRoom() {
           `;
         }).join('')}
       </div>
+      <div class="row" style="margin-top:16px;position:sticky;bottom:0;padding:8px 0;background:linear-gradient(to top, var(--card) 70%, transparent);">
+        <button id="pool-done" style="width:100%;">Готово · ${pool.size} в пуле</button>
+      </div>
     `;
 
     modal.body.querySelector('#pool-back').onclick = () => { view = 'main'; renderMain(); };
+    modal.body.querySelector('#pool-done').onclick = () => { view = 'main'; renderMain(); };
     modal.body.querySelector('#pool-all').onclick = () => { pool = new Set(allHeroIds); renderPool(); };
     modal.body.querySelector('#pool-none').onclick = () => { pool = new Set(); renderPool(); };
 
