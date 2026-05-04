@@ -8,6 +8,23 @@ export async function meRoutes(app) {
     return { user: enrich(user) };
   });
 
+  // Per-hero winrate for the current user — used by hero-picker UI to inform picks.
+  app.get('/hero-stats', async (req, reply) => {
+    const user = requireAuth(req, reply);
+    if (!user) return;
+    const db = getDb();
+    const rows = db.prepare(`
+      SELECT gp.hero_id, COUNT(*) AS games, SUM(gp.is_winner) AS wins
+      FROM game_players gp
+      JOIN games g ON g.id = gp.game_id
+      WHERE gp.tg_id = ? AND g.status = 'finished' AND gp.hero_id IS NOT NULL
+      GROUP BY gp.hero_id
+    `).all(user.tg_id);
+    const stats = {};
+    for (const r of rows) stats[r.hero_id] = { games: r.games, wins: r.wins };
+    return { stats };
+  });
+
   app.put('/', async (req, reply) => {
     const user = requireAuth(req, reply);
     if (!user) return;

@@ -18,7 +18,8 @@ const state = {
   heroes: null,
 };
 
-// Top-3 medals — used everywhere a player name appears.
+// — top-3 medal helpers —
+
 function medalEmoji(rank) {
   if (rank === 1) return '🏆';
   if (rank === 2) return '🥈';
@@ -29,6 +30,8 @@ function medalSpan(rank) {
   const m = medalEmoji(rank);
   return m ? `<span class="medal rank-${rank}">${m}</span>` : '';
 }
+
+// — fetch wrapper —
 
 async function api(path, opts = {}) {
   const res = await fetch('/api' + path, {
@@ -64,6 +67,8 @@ function updateTopbar() {
   status.innerHTML = `${m ? m + ' ' : ''}${escape(state.me.display_name)}`;
 }
 
+// — router —
+
 const routes = {
   '/players': renderPlayers,
   '/rooms': renderRooms,
@@ -91,7 +96,9 @@ function navigate() {
 
 window.addEventListener('hashchange', navigate);
 
-const TAB_LABELS = [
+// — players list / detail —
+
+const PLAYER_TABS = [
   { key: 'overall', label: 'Все' },
   { key: '1v1', label: '1 на 1' },
   { key: '2v2', label: '2 на 2' },
@@ -100,20 +107,16 @@ const TAB_LABELS = [
 
 async function renderPlayers() {
   const sort = new URLSearchParams(location.hash.split('?')[1] || '').get('sort') || 'overall';
-
   const { players } = await api(`/players?sort=${sort}`);
 
   screen.innerHTML = `
-    <div class="tabs">${TAB_LABELS.map((t) => `
+    <div class="tabs">${PLAYER_TABS.map((t) => `
       <button class="${t.key === sort ? 'active' : ''}" data-sort="${t.key}">${t.label}</button>
     `).join('')}</div>
     <div class="card" id="player-list"></div>
   `;
-
   screen.querySelectorAll('.tabs button').forEach((btn) => {
-    btn.onclick = () => {
-      location.hash = `#/players?sort=${btn.dataset.sort}`;
-    };
+    btn.onclick = () => { location.hash = `#/players?sort=${btn.dataset.sort}`; };
   });
 
   const list = screen.querySelector('#player-list');
@@ -123,103 +126,17 @@ async function renderPlayers() {
   }
   list.innerHTML = players.map((p) => {
     const heroLabel = p.hero_name || p.signature_custom || '—';
-    const avatar = playerAvatarStyle(p);
-    const meta = `${escape(heroLabel)} · ${formatGamesCount(p.games_played)}`;
     return `
       <a href="#/player/${p.tg_id}" class="player-row" style="text-decoration:none;color:inherit;">
-        <div class="avatar" style="${avatar}"></div>
+        <div class="avatar" style="${playerAvatarStyle(p)}"></div>
         <div>
           <div class="player-name">${medalSpan(p.rank)}${escape(p.display_name)}</div>
-          <div class="player-meta">${meta}</div>
+          <div class="player-meta">${escape(heroLabel)} · ${formatGamesCount(p.games_played)}</div>
         </div>
         <div class="points ${p.points ? '' : 'dim'}">${p.points}</div>
       </a>
     `;
   }).join('');
-}
-
-async function renderRooms() {
-  screen.innerHTML = `
-    <div class="empty">Комнаты появятся в следующем обновлении.</div>
-    <div class="row" style="justify-content:center;">
-      <button disabled>Создать комнату</button>
-    </div>
-  `;
-}
-
-async function renderTournaments() {
-  screen.innerHTML = `<div class="empty">Турниры подъедут после комнат.</div>`;
-}
-
-async function renderProfile() {
-  if (!state.heroes) {
-    const { heroes } = await api('/heroes');
-    state.heroes = heroes;
-  }
-  const me = (await api('/me')).user;
-  state.me = me;
-  updateTopbar();
-
-  const sets = [...new Set(state.heroes.map((h) => h.set_name))];
-  const heroOptions = sets.map((s) => `
-    <optgroup label="${escape(s)}">
-      ${state.heroes.filter((h) => h.set_name === s).map((h) =>
-        `<option value="${h.id}" ${me.signature_hero_id === h.id ? 'selected' : ''}>${escape(h.name)}</option>`
-      ).join('')}
-    </optgroup>
-  `).join('');
-
-  screen.innerHTML = `
-    <div class="card profile-hero">
-      <div class="avatar" style="${playerAvatarStyle(me)}"></div>
-      <div>
-        <div class="name">${medalSpan(me.rank)}${escape(me.display_name || '')}</div>
-        <div class="sub">${escape(me.hero?.name || me.signature_custom || 'герой не выбран')}</div>
-      </div>
-    </div>
-
-    <div class="card">
-      <label>Имя</label>
-      <input id="f-name" value="${escape(me.display_name || '')}" maxlength="64" />
-
-      <label>Сигнатурный герой</label>
-      <select id="f-hero">
-        <option value="">— не выбран —</option>
-        ${heroOptions}
-      </select>
-
-      <label>…или своя колода (если героя нет в списке)</label>
-      <input id="f-custom" value="${escape(me.signature_custom || '')}" maxlength="64" placeholder="Название колоды" />
-
-      <div class="row" style="margin-top:16px;">
-        <button id="f-save">Сохранить</button>
-      </div>
-      <p class="muted" style="font-size:12px;margin-top:14px;line-height:1.5;">
-        Аватарку можно поменять — отправь любую фотку боту в личку.
-      </p>
-    </div>
-  `;
-
-  screen.querySelector('#f-save').onclick = async (e) => {
-    e.target.disabled = true;
-    const display_name = screen.querySelector('#f-name').value.trim();
-    const heroId = screen.querySelector('#f-hero').value;
-    const custom = screen.querySelector('#f-custom').value.trim();
-    const body = { display_name };
-    if (heroId) body.signature_hero_id = Number(heroId);
-    else body.signature_custom = custom;
-    try {
-      const r = await api('/me', { method: 'PUT', body: JSON.stringify(body) });
-      state.me = r.user;
-      updateTopbar();
-      tg?.HapticFeedback?.notificationOccurred('success');
-      // Re-render to show fresh hero label
-      renderProfile();
-    } catch (err) {
-      alert('Не сохранилось: ' + err.message);
-    }
-    e.target.disabled = false;
-  };
 }
 
 async function renderPlayerDetail([tgId]) {
@@ -284,11 +201,620 @@ async function renderPlayerDetail([tgId]) {
   `;
 }
 
+// — profile —
+
+async function renderProfile() {
+  if (!state.heroes) {
+    const { heroes } = await api('/heroes');
+    state.heroes = heroes;
+  }
+  const me = (await api('/me')).user;
+  state.me = me;
+  updateTopbar();
+
+  const sets = [...new Set(state.heroes.map((h) => h.set_name))];
+  const heroOptions = sets.map((s) => `
+    <optgroup label="${escape(s)}">
+      ${state.heroes.filter((h) => h.set_name === s).map((h) =>
+        `<option value="${h.id}" ${me.signature_hero_id === h.id ? 'selected' : ''}>${escape(h.name)}</option>`
+      ).join('')}
+    </optgroup>
+  `).join('');
+
+  screen.innerHTML = `
+    <div class="card profile-hero">
+      <div class="avatar" style="${playerAvatarStyle(me)}"></div>
+      <div>
+        <div class="name">${medalSpan(me.rank)}${escape(me.display_name || '')}</div>
+        <div class="sub">${escape(me.hero?.name || me.signature_custom || 'герой не выбран')}</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <label>Имя</label>
+      <input id="f-name" value="${escape(me.display_name || '')}" maxlength="64" />
+
+      <label>Сигнатурный герой</label>
+      <select id="f-hero">
+        <option value="">— не выбран —</option>
+        ${heroOptions}
+      </select>
+
+      <label>…или своя колода (если героя нет в списке)</label>
+      <input id="f-custom" value="${escape(me.signature_custom || '')}" maxlength="64" placeholder="Название колоды" />
+
+      <div class="row" style="margin-top:16px;">
+        <button id="f-save">Сохранить</button>
+      </div>
+      <p class="muted" style="font-size:12px;margin-top:14px;line-height:1.5;">
+        Аватарку можно поменять — отправь любую фотку боту в личку.
+      </p>
+    </div>
+  `;
+
+  screen.querySelector('#f-save').onclick = async (e) => {
+    e.target.disabled = true;
+    const display_name = screen.querySelector('#f-name').value.trim();
+    const heroId = screen.querySelector('#f-hero').value;
+    const custom = screen.querySelector('#f-custom').value.trim();
+    const body = { display_name };
+    if (heroId) body.signature_hero_id = Number(heroId);
+    else body.signature_custom = custom;
+    try {
+      const r = await api('/me', { method: 'PUT', body: JSON.stringify(body) });
+      state.me = r.user;
+      updateTopbar();
+      tg?.HapticFeedback?.notificationOccurred('success');
+      renderProfile();
+    } catch (err) {
+      alert('Не сохранилось: ' + err.message);
+    }
+    e.target.disabled = false;
+  };
+}
+
+// — rooms —
+
+async function renderRooms([id, action]) {
+  if (!id) return renderRoomsList();
+  if (action === 'finalize') return renderFinalize(id);
+  return renderRoomDetail(id);
+}
+
+async function renderRoomsList() {
+  const { rooms } = await api('/rooms');
+  screen.innerHTML = `
+    <div class="row" style="margin-bottom:12px;">
+      <button id="new-room" style="width:100%;">+ Создать комнату</button>
+    </div>
+    <div class="card" id="room-list"></div>
+  `;
+  screen.querySelector('#new-room').onclick = openCreateRoom;
+  const list = screen.querySelector('#room-list');
+  if (!rooms.length) {
+    list.innerHTML = '<div class="empty">Нет открытых комнат. Создай первую — друзья подтянутся.</div>';
+    return;
+  }
+  list.innerHTML = rooms.map((r) => {
+    const full = r.players_count >= r.target_count;
+    return `
+      <a href="#/rooms/${r.id}" class="room-row">
+        <div class="room-type-badge">${roomTypeLabel(r.type)}</div>
+        <div>
+          <div class="room-creator">${escape(r.creator_name)}</div>
+          <div class="room-meta">собирает партию</div>
+        </div>
+        <div class="room-count ${full ? 'full' : ''}">${r.players_count}/${r.target_count}</div>
+      </a>
+    `;
+  }).join('');
+}
+
+function openCreateRoom() {
+  const types = [
+    { key: '1v1', name: '1 на 1', desc: '2 игрока · соло' },
+    { key: '2v2', name: '2 на 2', desc: '4 игрока · команды' },
+    { key: 'ffa3', name: 'FFA-3', desc: '3 игрока · все против всех' },
+    { key: 'ffa4', name: 'FFA-4', desc: '4 игрока · все против всех' },
+  ];
+  let selected = '1v1';
+  const modal = openModal({ title: 'Создать комнату', body: '' });
+
+  const refresh = () => {
+    modal.body.innerHTML = `
+      <div class="type-grid">
+        ${types.map((t) => `
+          <div class="type-tile ${t.key === selected ? 'selected' : ''}" data-type="${t.key}">
+            <div>${t.name}</div>
+            <div class="desc">${t.desc}</div>
+          </div>
+        `).join('')}
+      </div>
+      <div class="row" style="margin-top:18px;">
+        <button id="create-confirm" style="width:100%;">Создать</button>
+      </div>
+    `;
+    modal.body.querySelectorAll('.type-tile').forEach((el) => {
+      el.onclick = () => { selected = el.dataset.type; refresh(); };
+    });
+    modal.body.querySelector('#create-confirm').onclick = async (e) => {
+      e.target.disabled = true;
+      try {
+        const r = await api('/rooms', {
+          method: 'POST',
+          body: JSON.stringify({ type: selected }),
+        });
+        modal.close();
+        location.hash = `#/rooms/${r.id}`;
+      } catch (err) {
+        alert('Не получилось: ' + err.message);
+        e.target.disabled = false;
+      }
+    };
+  };
+  refresh();
+}
+
+async function renderRoomDetail(id) {
+  const { room } = await api(`/rooms/${id}`);
+  const me = state.me;
+  const myPlayer = room.players.find((p) => p.tg_id === me.tg_id);
+  const isCreator = room.creator_tg_id === me.tg_id;
+  const full = room.players.length >= room.target_count;
+  const allPicked = room.players.every((p) => p.hero_id || p.hero_custom);
+
+  if (room.status === 'finished') {
+    screen.innerHTML = `
+      <div class="card">
+        <div class="muted" style="font-size:13px;margin-bottom:8px;">${roomTypeLabel(room.type)} · комната #${room.id} · завершена</div>
+        ${room.notes ? `<div style="font-style:italic;margin-bottom:10px;">«${escape(room.notes)}»</div>` : ''}
+      </div>
+      <div class="card">
+        ${[...room.players].sort((a, b) => b.points_awarded - a.points_awarded).map((p) => `
+          <div class="player-row">
+            <div class="avatar" style="${playerAvatarStyle(p)}"></div>
+            <div>
+              <div class="player-name">${p.is_winner ? '🏆 ' : ''}${medalSpan(p.rank)}${escape(p.display_name)}</div>
+              <div class="player-meta">${escape(p.hero_name || p.hero_custom || '?')}</div>
+            </div>
+            <div class="points">+${p.points_awarded}</div>
+          </div>
+        `).join('')}
+      </div>
+      <div class="actions">
+        <a href="#/rooms" class="btn secondary" style="text-align:center;text-decoration:none;display:block;">К списку комнат</a>
+      </div>
+    `;
+    return;
+  }
+
+  const renderPlayer = (p) => {
+    const hero = p.hero_name || p.hero_custom || '<span style="color:var(--muted)">— герой не выбран —</span>';
+    return `
+      <div class="player-row">
+        <div class="avatar" style="${playerAvatarStyle(p)}"></div>
+        <div>
+          <div class="player-name">${medalSpan(p.rank)}${escape(p.display_name)}${p.tg_id === room.creator_tg_id ? ' <span class="muted" style="font-weight:500;font-size:12px;">· хост</span>' : ''}</div>
+          <div class="player-meta">${hero}</div>
+        </div>
+        <div></div>
+      </div>
+    `;
+  };
+
+  let participants;
+  if (room.type === '2v2') {
+    const teamA = room.players.filter((p) => p.team === 0);
+    const teamB = room.players.filter((p) => p.team === 1);
+    participants = `
+      <div class="team-label">Команда A
+        ${myPlayer && myPlayer.team !== 0 ? `<button class="swap" data-team="0">→ перейти</button>` : ''}
+      </div>
+      <div class="card">${teamA.length ? teamA.map(renderPlayer).join('') : '<div class="empty" style="padding:14px;">Пусто</div>'}</div>
+      <div class="team-label">Команда B
+        ${myPlayer && myPlayer.team !== 1 ? `<button class="swap" data-team="1">→ перейти</button>` : ''}
+      </div>
+      <div class="card">${teamB.length ? teamB.map(renderPlayer).join('') : '<div class="empty" style="padding:14px;">Пусто</div>'}</div>
+    `;
+  } else {
+    participants = `<div class="card">${room.players.map(renderPlayer).join('')}</div>`;
+  }
+
+  let actionsHtml = '<div class="actions">';
+  if (myPlayer) {
+    actionsHtml += `<button id="pick-hero" class="secondary">${(myPlayer.hero_name || myPlayer.hero_custom) ? 'Сменить героя' : 'Выбрать героя'}</button>`;
+    if (isCreator) {
+      actionsHtml += `<button id="finalize" ${full && allPicked ? '' : 'disabled'}>Записать результаты</button>`;
+    }
+    actionsHtml += `<button id="leave" class="secondary">${isCreator ? 'Удалить комнату' : 'Покинуть комнату'}</button>`;
+  } else if (full) {
+    actionsHtml += `<button disabled>Комната заполнена</button>`;
+  } else {
+    actionsHtml += `<button id="join">Войти в комнату</button>`;
+  }
+  actionsHtml += '</div>';
+
+  const stateText = !full
+    ? `Ждём игроков (${room.players.length}/${room.target_count})`
+    : (!allPicked ? 'Все на месте, остался выбор героев' : 'Готово к старту — хост может записать результат');
+
+  screen.innerHTML = `
+    <div class="card" style="display:flex;align-items:center;gap:12px;padding:14px 16px;">
+      <div class="room-type-badge">${roomTypeLabel(room.type)}</div>
+      <div>
+        <div style="font-weight:700;">${roomTypeLabel(room.type)} · комната #${room.id}</div>
+        <div class="muted" style="font-size:12px;margin-top:2px;">${escape(stateText)}</div>
+      </div>
+    </div>
+    ${participants}
+    ${actionsHtml}
+  `;
+
+  // Wire interactions
+  const pickBtn = screen.querySelector('#pick-hero');
+  if (pickBtn) pickBtn.onclick = () => openHeroPicker(id, myPlayer);
+
+  const joinBtn = screen.querySelector('#join');
+  if (joinBtn) joinBtn.onclick = async () => {
+    joinBtn.disabled = true;
+    try { await api(`/rooms/${id}/join`, { method: 'POST' }); renderRoomDetail(id); }
+    catch (e) { alert('Не получилось: ' + e.message); joinBtn.disabled = false; }
+  };
+
+  const leaveBtn = screen.querySelector('#leave');
+  if (leaveBtn) leaveBtn.onclick = async () => {
+    if (!confirm(isCreator ? 'Удалить комнату?' : 'Покинуть комнату?')) return;
+    try {
+      const r = await api(`/rooms/${id}/leave`, { method: 'POST' });
+      if (r.deleted) location.hash = '#/rooms';
+      else renderRoomDetail(id);
+    } catch (e) { alert('Не получилось: ' + e.message); }
+  };
+
+  const finBtn = screen.querySelector('#finalize');
+  if (finBtn) finBtn.onclick = () => { location.hash = `#/rooms/${id}/finalize`; };
+
+  screen.querySelectorAll('.swap').forEach((btn) => {
+    btn.onclick = async (e) => {
+      e.preventDefault();
+      try {
+        await api(`/rooms/${id}/team`, {
+          method: 'POST',
+          body: JSON.stringify({ team: Number(btn.dataset.team) }),
+        });
+        renderRoomDetail(id);
+      } catch (err) { alert('Не получилось: ' + err.message); }
+    };
+  });
+}
+
+async function openHeroPicker(roomId, myPlayer) {
+  if (!state.heroes) {
+    const { heroes } = await api('/heroes');
+    state.heroes = heroes;
+  }
+  const { stats } = await api('/me/hero-stats');
+  let query = '';
+  let selectedId = myPlayer.hero_id || null;
+  let custom = myPlayer.hero_custom || '';
+
+  const modal = openModal({ title: 'Выбор героя', body: '' });
+
+  const render = () => {
+    const filtered = state.heroes.filter((h) =>
+      !query
+      || h.name.toLowerCase().includes(query.toLowerCase())
+      || h.set_name.toLowerCase().includes(query.toLowerCase())
+    );
+    const grouped = {};
+    for (const h of filtered) {
+      if (!grouped[h.set_name]) grouped[h.set_name] = [];
+      grouped[h.set_name].push(h);
+    }
+    const list = Object.entries(grouped).map(([set, heroes]) => `
+      <div class="hero-set-header">${escape(set)}</div>
+      ${heroes.map((h) => {
+        const s = stats[h.id];
+        const wr = s ? Math.round((s.wins / s.games) * 100) : null;
+        return `
+          <div class="hero-row ${selectedId === h.id ? 'selected' : ''}" data-id="${h.id}">
+            <div class="avatar" style="${heroAvatarStyle(h.slug)}"></div>
+            <div>
+              <div class="hero-name">${escape(h.name)}</div>
+              <div class="hero-set">${escape(h.set_name)}</div>
+            </div>
+            <div class="hero-winrate ${s ? '' : 'dim'}">
+              ${s ? `<b>${wr}%</b><br>${formatGamesCount(s.games)}` : 'нет партий'}
+            </div>
+          </div>
+        `;
+      }).join('')}
+    `).join('');
+
+    modal.body.innerHTML = `
+      <input class="modal-search" id="hero-search" placeholder="Поиск героя или набора…" value="${escape(query)}" />
+      <div id="hero-list">${list || '<div class="empty">Никого не нашёл</div>'}</div>
+      <div style="border-top:1px solid var(--separator);padding-top:12px;margin-top:14px;">
+        <label style="margin-top:0;">…или своя колода (если героя нет в списке)</label>
+        <input id="custom-hero" placeholder="Название" value="${escape(custom)}" />
+      </div>
+      <div class="row" style="margin-top:14px;">
+        <button id="picker-save" style="width:100%;">Сохранить</button>
+      </div>
+    `;
+    const search = modal.body.querySelector('#hero-search');
+    search.oninput = (e) => {
+      query = e.target.value;
+      render();
+      modal.body.querySelector('#hero-search').focus();
+    };
+    modal.body.querySelectorAll('.hero-row').forEach((el) => {
+      el.onclick = () => { selectedId = Number(el.dataset.id); custom = ''; render(); };
+    });
+    modal.body.querySelector('#custom-hero').oninput = (e) => {
+      custom = e.target.value;
+      if (custom) selectedId = null;
+    };
+    modal.body.querySelector('#picker-save').onclick = async () => {
+      const body = selectedId ? { hero_id: selectedId } : { hero_custom: custom };
+      try {
+        await api(`/rooms/${roomId}/select-hero`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        });
+        modal.close();
+        renderRoomDetail(roomId);
+      } catch (e) { alert('Не получилось: ' + e.message); }
+    };
+  };
+  render();
+}
+
+// — finalize —
+
+async function renderFinalize(id) {
+  const { room } = await api(`/rooms/${id}`);
+  if (room.creator_tg_id !== state.me.tg_id) {
+    screen.innerHTML = `<div class="empty">Только хост может записывать результаты.</div>`;
+    return;
+  }
+  if (room.status === 'finished') {
+    screen.innerHTML = `<div class="empty">Эта комната уже завершена.</div>`;
+    return;
+  }
+  if (room.players.length !== room.target_count) {
+    screen.innerHTML = `<div class="empty">Нельзя завершить — не все игроки в комнате (${room.players.length}/${room.target_count}).</div>`;
+    return;
+  }
+
+  if (room.type === '1v1') return renderFinalize1v1(room);
+  if (room.type === '2v2') return renderFinalize2v2(room);
+  return renderFinalizeFFA(room);
+}
+
+function finalizeShell(room, body, getResult) {
+  screen.innerHTML = `
+    <div class="card">
+      <div class="muted" style="font-size:13px;margin-bottom:8px;">${roomTypeLabel(room.type)} · комната #${room.id}</div>
+      ${body}
+      <label>Заметка (опционально)</label>
+      <input id="fin-notes" placeholder="Например: эпик через 50 минут" maxlength="200" />
+      <div class="row" style="margin-top:14px;gap:8px;">
+        <button id="fin-cancel" class="secondary" style="flex:1;">Отмена</button>
+        <button id="fin-submit" style="flex:2;">Записать результаты</button>
+      </div>
+    </div>
+  `;
+  screen.querySelector('#fin-cancel').onclick = () => { location.hash = `#/rooms/${room.id}`; };
+  screen.querySelector('#fin-submit').onclick = async (e) => {
+    let result;
+    try { result = getResult(); } catch (err) { alert(err.message); return; }
+    const notes = screen.querySelector('#fin-notes').value.trim();
+    e.target.disabled = true;
+    try {
+      await api(`/rooms/${room.id}/finalize`, {
+        method: 'POST',
+        body: JSON.stringify({ players: result, notes: notes || null }),
+      });
+      tg?.HapticFeedback?.notificationOccurred('success');
+      location.hash = `#/rooms/${room.id}`;
+    } catch (err) {
+      alert('Не получилось: ' + (err.message || 'unknown'));
+      e.target.disabled = false;
+    }
+  };
+}
+
+function renderFinalize1v1(room) {
+  let winnerId = null;
+  const body = `
+    <label>Кто победил?</label>
+    <div class="radio-group" id="winner-group">
+      ${room.players.map((p) => `
+        <label class="radio-row" data-id="${p.tg_id}">
+          <div>${medalSpan(p.rank)}${escape(p.display_name)} <span class="muted" style="font-weight:400;">— ${escape(p.hero_name || p.hero_custom || '?')}</span></div>
+        </label>
+      `).join('')}
+    </div>
+  `;
+  finalizeShell(room, body, () => {
+    if (!winnerId) throw new Error('Выбери победителя');
+    return room.players.map((p) => ({
+      tg_id: p.tg_id,
+      elimination_order: p.tg_id === winnerId ? null : 1,
+    }));
+  });
+  screen.querySelectorAll('#winner-group .radio-row').forEach((el) => {
+    el.onclick = () => {
+      winnerId = Number(el.dataset.id);
+      screen.querySelectorAll('#winner-group .radio-row')
+        .forEach((x) => x.classList.toggle('selected', x === el));
+    };
+  });
+}
+
+function renderFinalize2v2(room) {
+  let winningTeam = null;
+  let winnerEliminated = null;
+  let loserFirst = null;
+
+  const body = `
+    <label>Победила команда</label>
+    <div class="radio-group" id="winning-team">
+      <label class="radio-row" data-team="0"><div>Команда A</div></label>
+      <label class="radio-row" data-team="1"><div>Команда B</div></label>
+    </div>
+    <div id="extra"></div>
+  `;
+  finalizeShell(room, body, () => {
+    if (winningTeam == null) throw new Error('Выбери команду-победителя');
+    const losers = room.players.filter((p) => p.team !== winningTeam);
+    if (losers.length === 2 && loserFirst == null) {
+      throw new Error('Укажи, кто из проигравших был выбит первым');
+    }
+    return room.players.map((p) => {
+      const isWinner = p.team === winningTeam;
+      let elimination_order = null;
+      if (isWinner) {
+        elimination_order = winnerEliminated === p.tg_id ? 1 : null;
+      } else {
+        elimination_order = loserFirst === p.tg_id ? 1 : 2;
+      }
+      return { tg_id: p.tg_id, team: p.team, elimination_order };
+    });
+  });
+
+  const refreshExtra = () => {
+    const extra = screen.querySelector('#extra');
+    if (winningTeam == null) { extra.innerHTML = ''; return; }
+    const winners = room.players.filter((p) => p.team === winningTeam);
+    const losers = room.players.filter((p) => p.team !== winningTeam);
+    extra.innerHTML = `
+      <label>Из команды-победителя кто-то был выбит?</label>
+      <div class="radio-group" id="we-group">
+        <div class="radio-row ${winnerEliminated == null ? 'selected' : ''}" data-w="alive"><div>Все выжили</div></div>
+        ${winners.map((p) => `
+          <div class="radio-row ${winnerEliminated === p.tg_id ? 'selected' : ''}" data-w="${p.tg_id}">
+            <div>${escape(p.display_name)} был(а) выбит(а)</div>
+          </div>
+        `).join('')}
+      </div>
+      <label>Из проигравших кто выбит первым?</label>
+      <div class="radio-group" id="lf-group">
+        ${losers.map((p) => `
+          <div class="radio-row ${loserFirst === p.tg_id ? 'selected' : ''}" data-l="${p.tg_id}">
+            <div>${escape(p.display_name)}</div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+    extra.querySelectorAll('[data-w]').forEach((el) => {
+      el.onclick = () => {
+        const v = el.dataset.w;
+        winnerEliminated = v === 'alive' ? null : Number(v);
+        refreshExtra();
+      };
+    });
+    extra.querySelectorAll('[data-l]').forEach((el) => {
+      el.onclick = () => { loserFirst = Number(el.dataset.l); refreshExtra(); };
+    });
+  };
+
+  screen.querySelectorAll('#winning-team .radio-row').forEach((el) => {
+    el.onclick = () => {
+      winningTeam = Number(el.dataset.team);
+      winnerEliminated = null;
+      loserFirst = null;
+      screen.querySelectorAll('#winning-team .radio-row')
+        .forEach((x) => x.classList.toggle('selected', x === el));
+      refreshExtra();
+    };
+  });
+}
+
+function renderFinalizeFFA(room) {
+  const N = room.target_count;
+  const places = {}; // tg_id -> place (1..N)
+
+  const body = `
+    <label>Расставь по местам (1 — победитель, ${N} — первый выбитый)</label>
+    <div id="ffa-list"></div>
+  `;
+
+  finalizeShell(room, body, () => {
+    const seen = new Set();
+    for (const p of room.players) {
+      const place = places[p.tg_id];
+      if (!place) throw new Error('Каждому игроку нужно поставить место');
+      if (seen.has(place)) throw new Error('Места не должны повторяться');
+      seen.add(place);
+    }
+    return room.players.map((p) => ({
+      tg_id: p.tg_id,
+      elimination_order: places[p.tg_id] === 1 ? null : N - places[p.tg_id] + 1,
+    }));
+  });
+
+  const list = screen.querySelector('#ffa-list');
+  list.innerHTML = room.players.map((p) => `
+    <div class="fin-row">
+      <div class="avatar" style="${playerAvatarStyle(p)}"></div>
+      <div>
+        <div class="player-name">${medalSpan(p.rank)}${escape(p.display_name)}</div>
+        <div class="player-meta">${escape(p.hero_name || p.hero_custom || '?')}</div>
+      </div>
+      <select data-id="${p.tg_id}">
+        <option value="">— место —</option>
+        ${Array.from({ length: N }, (_, i) => i + 1).map((n) =>
+          `<option value="${n}">${n}-е${n === 1 ? ' (победа)' : ''}</option>`
+        ).join('')}
+      </select>
+    </div>
+  `).join('');
+  list.querySelectorAll('select').forEach((sel) => {
+    sel.onchange = (e) => {
+      const v = Number(e.target.value);
+      places[Number(sel.dataset.id)] = v || undefined;
+    };
+  });
+}
+
+// — tournaments (placeholder) —
+
+async function renderTournaments() {
+  screen.innerHTML = `<div class="empty">Турниры подъедут после комнат.</div>`;
+}
+
+// — modal helper —
+
+function openModal({ title, body }) {
+  const root = document.createElement('div');
+  root.className = 'modal-backdrop';
+  root.innerHTML = `
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title"></div>
+        <button class="modal-close">×</button>
+      </div>
+      <div class="modal-body"></div>
+    </div>
+  `;
+  document.body.appendChild(root);
+  root.querySelector('.modal-title').textContent = title;
+  const bodyEl = root.querySelector('.modal-body');
+  if (typeof body === 'function') bodyEl.innerHTML = body();
+  else bodyEl.innerHTML = body || '';
+  const close = () => root.remove();
+  root.querySelector('.modal-close').onclick = close;
+  root.onclick = (e) => { if (e.target === root) close(); };
+  return { close, body: bodyEl };
+}
+
 function renderNotFound() {
   screen.innerHTML = `<div class="empty">Страница не найдена.</div>`;
 }
 
-// — helpers —
+// — small helpers —
 
 function playerAvatarStyle(user) {
   if (user.avatar_file_id) return `background-image:url(/api/avatar/${user.tg_id})`;
@@ -302,12 +828,9 @@ function heroAvatarStyle(slug) {
 }
 
 function gameTypeLabel(type) {
-  if (type === '1v1') return '1v1';
-  if (type === '2v2') return '2v2';
-  if (type === 'ffa3') return 'FFA-3';
-  if (type === 'ffa4') return 'FFA-4';
-  return type;
+  return ({ '1v1': '1v1', '2v2': '2v2', ffa3: 'FFA-3', ffa4: 'FFA-4' })[type] || type;
 }
+const roomTypeLabel = gameTypeLabel;
 
 function formatGamesCount(n) {
   const num = Number(n) || 0;
@@ -322,8 +845,7 @@ function formatGamesCount(n) {
 
 function formatDate(ms) {
   if (!ms) return '';
-  const d = new Date(ms);
-  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+  return new Date(ms).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
 }
 
 function escape(s) {
