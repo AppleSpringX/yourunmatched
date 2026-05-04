@@ -17,5 +17,8 @@
     "@fastify/static": "^7.0.4",
     "fastify": "^4.28.1",
     "grammy": "^1.30.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.87.0"
   }
 }
