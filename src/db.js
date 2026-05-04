@@ -26,7 +26,30 @@ export function initDb() {
   ensureSchemaExtensions(db);
   seedHeroes(db);
   syncHeroNames(db);
+  pruneOrphanedHeroes(db);
   return db;
+}
+
+// Remove hero rows whose slug is no longer in the seed JSON, but only if they're not
+// referenced by any user (signature) or game_players (recorded match). Keeps history intact.
+function pruneOrphanedHeroes(db) {
+  const seedPath = resolve(__dirname, 'data', 'heroes.json');
+  const heroes = JSON.parse(readFileSync(seedPath, 'utf8'));
+  const valid = new Set(heroes.map((h) => h.slug));
+
+  const candidates = db.prepare('SELECT id, slug FROM heroes').all().filter((h) => !valid.has(h.slug));
+  if (candidates.length === 0) return;
+
+  let removed = 0;
+  for (const h of candidates) {
+    const refUser = db.prepare('SELECT 1 FROM users WHERE signature_hero_id = ? LIMIT 1').get(h.id);
+    const refGame = db.prepare('SELECT 1 FROM game_players WHERE hero_id = ? LIMIT 1').get(h.id);
+    if (!refUser && !refGame) {
+      db.prepare('DELETE FROM heroes WHERE id = ?').run(h.id);
+      removed++;
+    }
+  }
+  if (removed > 0) console.log(`[db] pruned ${removed} obsolete hero(es)`);
 }
 
 // Idempotent ALTER TABLE ADD COLUMN — checks PRAGMA before adding so we don't error on re-run.

@@ -371,7 +371,8 @@ async function openCreateRoom() {
   const playerCount = { '1v1': 2, '2v2': 4, ffa3: 3, ffa4: 4 };
   let selected = '1v1';
   let isDraft = false;
-  let pool = new Set(allHeroIds);
+  // Empty by default — let the host curate what's playable
+  let pool = new Set();
   let view = 'main';
 
   const modal = openModal({ title: 'Создать комнату', body: '' });
