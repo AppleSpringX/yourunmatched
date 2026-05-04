@@ -34,11 +34,17 @@ function medalSpan(rank) {
 // — fetch wrapper —
 
 async function api(path, opts = {}) {
-  const res = await fetch('/api' + path, {
+  const method = (opts.method || 'GET').toUpperCase();
+  const init = {
     credentials: 'include',
     headers: { 'content-type': 'application/json', ...(opts.headers || {}) },
     ...opts,
-  });
+  };
+  // Fastify rejects empty body when content-type is application/json. Send {} for body-less mutations.
+  if (method !== 'GET' && method !== 'HEAD' && !init.body) {
+    init.body = '{}';
+  }
+  const res = await fetch('/api' + path, init);
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(err.error || 'request_failed');
