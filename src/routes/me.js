@@ -1,5 +1,5 @@
 import { requireAuth } from '../auth.js';
-import { getDb } from '../db.js';
+import { getDb, getTopThreeRanks } from '../db.js';
 
 export async function meRoutes(app) {
   app.get('/', async (req, reply) => {
@@ -38,8 +38,9 @@ export async function meRoutes(app) {
 }
 
 function enrich(user) {
-  if (!user.signature_hero_id) return user;
+  const rank = getTopThreeRanks().get(user.tg_id) ?? null;
+  if (!user.signature_hero_id) return { ...user, rank };
   const db = getDb();
   const hero = db.prepare('SELECT id, name, slug, set_name FROM heroes WHERE id = ?').get(user.signature_hero_id);
-  return { ...user, hero };
+  return { ...user, hero, rank };
 }

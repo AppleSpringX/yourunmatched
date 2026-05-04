@@ -12,12 +12,12 @@ export async function startBot(app) {
 
   bot.command('start', (ctx) => {
     if (!config.webappUrl) {
-      return ctx.reply('Bot is online, but WEBAPP_URL is not configured yet. Set it and restart.');
+      return ctx.reply('Бот онлайн, но WEBAPP_URL не настроен. Поставь и рестартни.');
     }
-    return ctx.reply('Welcome to the Unmatched community app.', {
+    return ctx.reply('Здарова, чемпион(-ка)! Го катку👇', {
       reply_markup: {
         inline_keyboard: [
-          [{ text: 'Open app', web_app: { url: config.webappUrl } }],
+          [{ text: 'Играть', web_app: { url: config.webappUrl } }],
         ],
       },
     });
@@ -29,12 +29,12 @@ export async function startBot(app) {
     const db = getDb();
     const user = db.prepare('SELECT tg_id FROM users WHERE tg_id = ?').get(tgId);
     if (!user) {
-      await ctx.reply('Open the app first to register, then send a photo to set as avatar.');
+      await ctx.reply('Сначала открой приложение через /start, чтобы зарегистрироваться, потом возвращайся с фоткой.');
       return;
     }
     const photo = ctx.message.photo[ctx.message.photo.length - 1];
     db.prepare('UPDATE users SET avatar_file_id = ? WHERE tg_id = ?').run(photo.file_id, tgId);
-    await ctx.reply('Avatar updated.');
+    await ctx.reply('Аватарка обновлена 🤘');
   });
 
   if (config.botMode === 'polling') {

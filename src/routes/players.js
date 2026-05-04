@@ -1,4 +1,4 @@
-import { getDb } from '../db.js';
+import { getDb, getTopThreeRanks } from '../db.js';
 
 const SORT_FILTERS = {
   overall: '',
@@ -33,6 +33,9 @@ export async function playersRoutes(app) {
       ORDER BY points DESC, games_played DESC, u.display_name ASC
     `).all();
 
+    const ranks = getTopThreeRanks();
+    for (const r of rows) r.rank = ranks.get(r.tg_id) ?? null;
+
     return { sort, players: rows };
   });
 
@@ -45,6 +48,8 @@ export async function playersRoutes(app) {
       WHERE u.tg_id = ?
     `).get(tgId);
     if (!user) return reply.code(404).send({ error: 'not_found' });
+
+    user.rank = getTopThreeRanks().get(tgId) ?? null;
 
     const totals = db.prepare(`
       SELECT

@@ -10,15 +10,13 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "migrate": "node src/db.js"
+    "migrate": "node src/db.js",
+    "worker:deploy": "cd cf-worker && npm install --silent && npx wrangler deploy"
   },
   "dependencies": {
     "@fastify/cookie": "^9.4.0",
     "@fastify/static": "^7.0.4",
     "fastify": "^4.28.1",
     "grammy": "^1.30.0"
-  },
-  "devDependencies": {
-    "wrangler": "^4.87.0"
   }
 }

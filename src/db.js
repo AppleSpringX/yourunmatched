@@ -24,7 +24,24 @@ export function initDb() {
 
   migrate(db);
   seedHeroes(db);
+  syncHeroNames(db);
   return db;
+}
+
+// Top-3 by overall (sum of all points across game types).
+// Returns Map<tg_id, rank> with rank in {1, 2, 3}.
+export function getTopThreeRanks() {
+  const rows = getDb().prepare(`
+    SELECT u.tg_id, COALESCE(SUM(gp.points_awarded), 0) AS overall
+    FROM users u
+    LEFT JOIN game_players gp ON gp.tg_id = u.tg_id
+    LEFT JOIN games g ON g.id = gp.game_id AND g.status = 'finished'
+    GROUP BY u.tg_id
+    HAVING overall > 0
+    ORDER BY overall DESC, u.display_name ASC
+    LIMIT 3
+  `).all();
+  return new Map(rows.map((r, i) => [r.tg_id, i + 1]));
 }
 
 // node:sqlite has no built-in transaction helper; thin wrapper for clarity.
@@ -99,19 +116,40 @@ function migrate(db) {
 }
 
 function seedHeroes(db) {
-  const count = db.prepare('SELECT COUNT(*) AS n FROM heroes').get().n;
-  if (count > 0) return;
-
   const seedPath = resolve(__dirname, 'data', 'heroes.json');
   const heroes = JSON.parse(readFileSync(seedPath, 'utf8'));
 
+  const exists = db.prepare('SELECT 1 FROM heroes WHERE slug = ?');
   const insert = db.prepare(
     'INSERT INTO heroes (name, set_name, slug) VALUES (?, ?, ?)'
   );
+  let added = 0;
   transaction(db, () => {
-    for (const h of heroes) insert.run(h.name, h.set, h.slug);
+    for (const h of heroes) {
+      if (!exists.get(h.slug)) {
+        insert.run(h.name, h.set, h.slug);
+        added++;
+      }
+    }
   });
-  console.log(`[db] seeded ${heroes.length} heroes`);
+  if (added > 0) console.log(`[db] seeded ${added} new heroes`);
+}
+
+// Update name + set_name for existing heroes by slug, so JSON edits propagate.
+function syncHeroNames(db) {
+  const seedPath = resolve(__dirname, 'data', 'heroes.json');
+  const heroes = JSON.parse(readFileSync(seedPath, 'utf8'));
+  const update = db.prepare(
+    'UPDATE heroes SET name = ?, set_name = ? WHERE slug = ? AND (name != ? OR set_name != ?)'
+  );
+  let changed = 0;
+  transaction(db, () => {
+    for (const h of heroes) {
+      const result = update.run(h.name, h.set, h.slug, h.name, h.set);
+      if (result.changes > 0) changed++;
+    }
+  });
+  if (changed > 0) console.log(`[db] synced ${changed} hero names from JSON`);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
