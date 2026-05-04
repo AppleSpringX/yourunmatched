@@ -52,11 +52,41 @@ export async function playersRoutes(app) {
     user.rank = getTopThreeRanks().get(tgId) ?? null;
 
     // Privacy: profile owner sees everything; other viewers get only sections marked public.
-    const viewerTgId = req.cookies?.sid ? Number(req.unsignCookie(req.cookies.sid).value) : null;
+    const viewerCookie = req.cookies?.sid ? req.unsignCookie(req.cookies.sid) : null;
+    const viewerTgId = viewerCookie?.valid ? Number(viewerCookie.value) : null;
     const isOwner = viewerTgId === tgId;
     const canSeeBreakdown = isOwner || user.show_breakdown !== 0;
     const canSeeHeroes = isOwner || user.show_heroes !== 0;
     const canSeeRecent = isOwner || user.show_recent !== 0;
+
+    // Head-to-head: pair stats between the viewer and this profile (all finished games where both played).
+    let h2h = null;
+    if (viewerTgId && !isOwner) {
+      const matches = db.prepare(`
+        SELECT g.type, g.finished_at,
+               gp1.team AS my_team, gp1.elimination_order AS my_elim,
+               gp2.team AS their_team, gp2.elimination_order AS their_elim
+        FROM games g
+        JOIN game_players gp1 ON gp1.game_id = g.id AND gp1.tg_id = ?
+        JOIN game_players gp2 ON gp2.game_id = g.id AND gp2.tg_id = ?
+        WHERE g.status = 'finished'
+        ORDER BY g.finished_at DESC
+      `).all(viewerTgId, tgId);
+
+      let games = 0, my_wins = 0, their_wins = 0, last_meeting = null;
+      for (const m of matches) {
+        // Allies in 2v2 don't count as a head-to-head match.
+        if (m.type === '2v2' && m.my_team === m.their_team) continue;
+        games++;
+        if (last_meeting === null) last_meeting = m.finished_at;
+        // elimination_order: null = survived (best), 1 = first eliminated (worst). Bigger = better.
+        const mine = m.my_elim === null ? Infinity : m.my_elim;
+        const theirs = m.their_elim === null ? Infinity : m.their_elim;
+        if (mine > theirs) my_wins++;
+        else if (theirs > mine) their_wins++;
+      }
+      if (games > 0) h2h = { games, my_wins, their_wins, last_meeting };
+    }
 
     const totals = db.prepare(`
       SELECT
@@ -108,6 +138,7 @@ export async function playersRoutes(app) {
       totals: publicTotals,
       heroStats: canSeeHeroes ? heroStats : null,
       recent: canSeeRecent ? recent : null,
+      h2h,
       isOwner,
       privacy: {
         show_breakdown: !!user.show_breakdown,

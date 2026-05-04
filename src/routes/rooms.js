@@ -259,6 +259,31 @@ export async function roomsRoutes(app) {
     return { ok: true };
   });
 
+  // Randomize 2v2 teams: host-only shuffle of all players into random team A/B slots.
+  // Available in any open lobby (non-draft AND not-yet-started-draft) — not during active draft.
+  app.post('/:id/randomize-teams', async (req, reply) => {
+    const user = requireAuth(req, reply);
+    if (!user) return;
+    const db = getDb();
+    const id = Number(req.params.id);
+    const room = db.prepare('SELECT * FROM games WHERE id = ?').get(id);
+    if (!room) return reply.code(404).send({ error: 'not_found' });
+    if (room.creator_tg_id !== user.tg_id) return reply.code(403).send({ error: 'not_creator' });
+    if (room.status !== 'open') return reply.code(400).send({ error: 'not_open' });
+    if (room.type !== '2v2') return reply.code(400).send({ error: 'not_team_game' });
+    if (room.draft_started_at) return reply.code(400).send({ error: 'draft_in_progress' });
+
+    const players = db.prepare('SELECT tg_id FROM game_players WHERE game_id = ? ORDER BY rowid').all(id);
+    if (players.length < 2) return reply.code(400).send({ error: 'not_enough_players' });
+
+    const shuffled = [...players].sort(() => Math.random() - 0.5);
+    transaction(db, () => {
+      const upd = db.prepare('UPDATE game_players SET team = ? WHERE game_id = ? AND tg_id = ?');
+      shuffled.forEach((p, i) => upd.run(i < 2 ? 0 : 1, id, p.tg_id));
+    });
+    return { ok: true };
+  });
+
   // Start the draft (host only). Randomizes 2v2 teams. Resets draft_log.
   app.post('/:id/start-draft', async (req, reply) => {
     const user = requireAuth(req, reply);

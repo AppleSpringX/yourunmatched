@@ -189,9 +189,28 @@ async function renderPlayers() {
 
 async function renderPlayerDetail([tgId]) {
   if (!tgId) return renderNotFound();
-  const { user, totals, heroStats, recent, isOwner } = await api(`/players/${tgId}`);
+  const { user, totals, heroStats, recent, isOwner, h2h } = await api(`/players/${tgId}`);
   const heroLabel = user.hero_name || user.signature_custom || 'герой не выбран';
   const breakdownHidden = totals?.hidden;
+
+  let h2hCard = '';
+  if (h2h) {
+    let verdict;
+    if (h2h.my_wins > h2h.their_wins) verdict = `Ведёшь`;
+    else if (h2h.their_wins > h2h.my_wins) verdict = `Ведёт ${escape(user.display_name)}`;
+    else verdict = h2h.games === h2h.my_wins + h2h.their_wins ? 'Ничья' : 'Поровну';
+    h2hCard = `
+      <h3 class="section-title">Между вами</h3>
+      <div class="card" style="text-align:center;padding:20px 16px;">
+        <div style="font-size:28px;font-weight:800;letter-spacing:-0.02em;color:var(--accent);">
+          ${h2h.my_wins} <span class="muted" style="font-weight:400;">:</span> ${h2h.their_wins}
+        </div>
+        <div class="muted" style="font-size:12px;text-transform:uppercase;letter-spacing:0.05em;font-weight:700;margin-top:6px;">
+          ${verdict} · ${formatGamesCount(h2h.games)}
+        </div>
+        ${h2h.last_meeting ? `<div class="muted" style="font-size:12px;margin-top:8px;">Последняя встреча: ${formatDate(h2h.last_meeting)}</div>` : ''}
+      </div>`;
+  }
 
   const breakdownCard = breakdownHidden
     ? `<div class="card" style="padding:14px 16px;text-align:center;">
@@ -258,6 +277,7 @@ async function renderPlayerDetail([tgId]) {
       </div>
     </div>
     ${breakdownCard}
+    ${h2hCard}
     ${heroesSection}
     ${recentSection}
   `;
@@ -681,6 +701,9 @@ async function renderRoomDetail(id) {
     if (showHeroPick) {
       actionsHtml += `<button id="pick-hero" class="secondary">${(myPlayer.hero_name || myPlayer.hero_custom) ? 'Сменить героя' : 'Выбрать героя'}</button>`;
     }
+    if (room.type === '2v2' && isCreator && !inDraft && !isTournamentMatch) {
+      actionsHtml += `<button id="randomize-teams" class="secondary">🎲 Рандом команд</button>`;
+    }
     if (room.is_draft && !room.draft?.started && isCreator && full) {
       actionsHtml += `<button id="start-draft">Начать драфт</button>`;
     }
@@ -754,6 +777,19 @@ async function renderRoomDetail(id) {
 
   const finBtn = screen.querySelector('#finalize');
   if (finBtn) finBtn.onclick = () => { location.hash = `#/rooms/${id}/finalize`; };
+
+  const randBtn = screen.querySelector('#randomize-teams');
+  if (randBtn) randBtn.onclick = async () => {
+    randBtn.disabled = true;
+    try {
+      await api(`/rooms/${id}/randomize-teams`, { method: 'POST' });
+      tg?.HapticFeedback?.selectionChanged?.();
+      renderRoomDetail(id);
+    } catch (e) {
+      alert('Не получилось: ' + e.message);
+      randBtn.disabled = false;
+    }
+  };
 
   const startDraftBtn = screen.querySelector('#start-draft');
   if (startDraftBtn) startDraftBtn.onclick = async () => {
