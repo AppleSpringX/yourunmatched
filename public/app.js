@@ -1626,7 +1626,9 @@ function escape(s) {
 }
 
 async function shareRoom(roomId) {
-  const url = `https://t.me/${BOT_USERNAME}/app?startapp=room_${roomId}`;
+  // t.me/<bot>?startapp=<param> opens the bot's Menu Button WebApp with start_param.
+  // (t.me/<bot>/<name>?startapp=... requires /newapp in BotFather; we don't use that.)
+  const url = `https://t.me/${BOT_USERNAME}?startapp=room_${roomId}`;
   // Try Telegram's native share, fall back to clipboard, fall back to prompt
   if (tg?.openTelegramLink) {
     const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent('Заходи в комнату Unmatched')}`;
