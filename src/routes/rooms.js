@@ -64,7 +64,7 @@ export async function roomsRoutes(app) {
       JOIN users u ON u.tg_id = gp.tg_id
       LEFT JOIN heroes h ON h.id = gp.hero_id
       WHERE gp.game_id = ?
-      ORDER BY rowid ASC
+      ORDER BY gp.rowid ASC
     `).all(room.id);
     const ranks = getTopThreeRanks();
     for (const p of players) p.rank = ranks.get(p.tg_id) ?? null;
