@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: unmatched-proxy
+    runtime: node
+    rootDir: proxy
+    buildCommand: ''
+    startCommand: node server.js
+    plan: free
+    healthCheckPath: /proxy-health
+    region: frankfurt

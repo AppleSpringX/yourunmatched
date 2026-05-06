@@ -1,0 +1,13 @@
+{
+  "name": "unmatched-proxy",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Tiny HTTPS-fronted proxy → wispbyte HTTP backend. Hosted on Render free tier so users get a domain that's not on AdGuard block-lists.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js"
+  }
+}
