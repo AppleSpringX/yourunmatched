@@ -21,6 +21,13 @@ loadDotenv();
 // Pterodactyl/wispbyte expose the allocated port as SERVER_PORT, not PORT.
 const port = Number(process.env.SERVER_PORT || process.env.PORT) || 3000;
 
+// Admin recognition: comma-separated Telegram usernames (no @). Default has the project owner.
+// Override via ADMIN_USERNAMES env var if needed.
+const adminUsernames = (process.env.ADMIN_USERNAMES || 'AppleSpring')
+  .split(',')
+  .map((s) => s.trim().toLowerCase())
+  .filter(Boolean);
+
 export const config = {
   botToken: process.env.BOT_TOKEN || '',
   webappUrl: process.env.WEBAPP_URL || '',
@@ -30,6 +37,7 @@ export const config = {
   botMode: process.env.BOT_MODE === 'webhook' ? 'webhook' : 'polling',
   webhookUrl: process.env.WEBHOOK_URL || '',
   adminToken: process.env.ADMIN_TOKEN || '',
+  adminUsernames,
 };
 
 if (!config.botToken) {

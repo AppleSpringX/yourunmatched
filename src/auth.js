@@ -2,6 +2,13 @@ import { createHmac } from 'node:crypto';
 import { config } from './config.js';
 import { getDb } from './db.js';
 
+// Admin check by Telegram username (case-insensitive). Username can change in TG;
+// if you ever need stable identity, switch to tg_id-based check.
+export function isAdminUser(user) {
+  if (!user || !user.username) return false;
+  return config.adminUsernames.includes(String(user.username).toLowerCase());
+}
+
 const SESSION_COOKIE = 'sid';
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 
@@ -79,6 +86,17 @@ export function requireAuth(req, reply) {
   const user = db.prepare('SELECT * FROM users WHERE tg_id = ?').get(tgId);
   if (!user) {
     reply.code(401).send({ error: 'unauthorized' });
+    return null;
+  }
+  return user;
+}
+
+// Like requireAuth but also enforces admin role. Returns user, or null after sending 403.
+export function requireAdmin(req, reply) {
+  const user = requireAuth(req, reply);
+  if (!user) return null;
+  if (!isAdminUser(user)) {
+    reply.code(403).send({ error: 'admin_required' });
     return null;
   }
   return user;

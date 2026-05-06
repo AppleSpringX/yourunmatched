@@ -1,4 +1,4 @@
-import { requireAuth } from '../auth.js';
+import { requireAuth, isAdminUser } from '../auth.js';
 import { getDb, getTopThreeRanks } from '../db.js';
 
 export async function meRoutes(app) {
@@ -64,13 +64,14 @@ export async function meRoutes(app) {
 
 function enrich(user) {
   const rank = getTopThreeRanks().get(user.tg_id) ?? null;
+  const isAdmin = isAdminUser(user);
   const privacy = {
     show_breakdown: !!user.show_breakdown,
     show_heroes: !!user.show_heroes,
     show_recent: !!user.show_recent,
   };
-  if (!user.signature_hero_id) return { ...user, rank, privacy };
+  if (!user.signature_hero_id) return { ...user, rank, isAdmin, privacy };
   const db = getDb();
   const hero = db.prepare('SELECT id, name, slug, set_name FROM heroes WHERE id = ?').get(user.signature_hero_id);
-  return { ...user, hero, rank, privacy };
+  return { ...user, hero, rank, isAdmin, privacy };
 }

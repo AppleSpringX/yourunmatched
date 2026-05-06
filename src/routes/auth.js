@@ -1,4 +1,4 @@
-import { verifyInitData, upsertUser, setSession } from '../auth.js';
+import { verifyInitData, upsertUser, setSession, isAdminUser } from '../auth.js';
 import { getTopThreeRanks } from '../db.js';
 
 export async function authRoutes(app) {
@@ -9,6 +9,7 @@ export async function authRoutes(app) {
     const user = upsertUser(tgUser);
     setSession(reply, user.tg_id);
     const rank = getTopThreeRanks().get(user.tg_id) ?? null;
-    return { ok: true, user: { ...user, rank } };
+    const isAdmin = isAdminUser(user);
+    return { ok: true, user: { ...user, rank, isAdmin } };
   });
 }

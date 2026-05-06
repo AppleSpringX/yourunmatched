@@ -1,7 +1,12 @@
 import { getDb, getTopThreeRanks, transaction } from '../db.js';
-import { requireAuth } from '../auth.js';
+import { requireAuth, isAdminUser } from '../auth.js';
 import { computePoints, PLAYER_COUNT } from '../scoring.js';
 import { notify, notifyRoom } from '../notify.js';
+
+// Allows host actions (finalize, reset, randomize, delete) for the room creator OR any admin.
+function canManageRoom(room, user) {
+  return room.creator_tg_id === user.tg_id || isAdminUser(user);
+}
 
 // — draft helpers —
 
@@ -131,7 +136,7 @@ export async function roomsRoutes(app) {
     const id = Number(req.params.id);
     const room = db.prepare('SELECT * FROM games WHERE id = ?').get(id);
     if (!room) return reply.code(404).send({ error: 'not_found' });
-    if (room.creator_tg_id !== user.tg_id) return reply.code(403).send({ error: 'not_creator' });
+    if (!canManageRoom(room, user)) return reply.code(403).send({ error: 'not_creator' });
     if (room.status !== 'open') return reply.code(400).send({ error: 'not_open' });
     if (room.is_draft) return reply.code(400).send({ error: 'use_draft_flow' });
     const pool = JSON.parse(room.hero_pool || '[]');
@@ -313,7 +318,7 @@ export async function roomsRoutes(app) {
     const id = Number(req.params.id);
     const room = db.prepare('SELECT * FROM games WHERE id = ?').get(id);
     if (!room) return reply.code(404).send({ error: 'not_found' });
-    if (room.creator_tg_id !== user.tg_id) return reply.code(403).send({ error: 'not_creator' });
+    if (!canManageRoom(room, user)) return reply.code(403).send({ error: 'not_creator' });
     if (room.status !== 'open') return reply.code(400).send({ error: 'not_open' });
     if (room.type !== '2v2') return reply.code(400).send({ error: 'not_team_game' });
     if (room.draft_started_at) return reply.code(400).send({ error: 'draft_in_progress' });
@@ -338,7 +343,7 @@ export async function roomsRoutes(app) {
     const room = db.prepare('SELECT * FROM games WHERE id = ?').get(id);
     if (!room) return reply.code(404).send({ error: 'not_found' });
     if (!room.is_draft) return reply.code(400).send({ error: 'not_draft_mode' });
-    if (room.creator_tg_id !== user.tg_id) return reply.code(403).send({ error: 'not_creator' });
+    if (!canManageRoom(room, user)) return reply.code(403).send({ error: 'not_creator' });
     if (room.draft_started_at) return reply.code(400).send({ error: 'already_started' });
     if (room.status !== 'open') return reply.code(400).send({ error: 'not_open' });
 
@@ -443,7 +448,7 @@ export async function roomsRoutes(app) {
     const id = Number(req.params.id);
     const room = db.prepare('SELECT * FROM games WHERE id = ?').get(id);
     if (!room) return reply.code(404).send({ error: 'not_found' });
-    if (room.creator_tg_id !== user.tg_id) return reply.code(403).send({ error: 'not_creator' });
+    if (!canManageRoom(room, user)) return reply.code(403).send({ error: 'not_creator' });
     if (room.status !== 'finished') return reply.code(400).send({ error: 'not_finished' });
 
     transaction(db, () => {
@@ -468,7 +473,7 @@ export async function roomsRoutes(app) {
     const id = Number(req.params.id);
     const room = db.prepare('SELECT * FROM games WHERE id = ?').get(id);
     if (!room) return reply.code(404).send({ error: 'not_found' });
-    if (room.creator_tg_id !== user.tg_id) return reply.code(403).send({ error: 'not_creator' });
+    if (!canManageRoom(room, user)) return reply.code(403).send({ error: 'not_creator' });
     if (!room.is_draft) return reply.code(400).send({ error: 'not_draft_mode' });
     if (!room.draft_started_at) return reply.code(400).send({ error: 'draft_not_started' });
     if (room.status !== 'open') return reply.code(400).send({ error: 'not_open' });
@@ -495,7 +500,7 @@ export async function roomsRoutes(app) {
     const room = db.prepare('SELECT * FROM games WHERE id = ?').get(id);
     if (!room) return reply.code(404).send({ error: 'not_found' });
     if (room.status === 'finished') return reply.code(400).send({ error: 'already_finished' });
-    if (room.creator_tg_id !== user.tg_id) return reply.code(403).send({ error: 'not_creator' });
+    if (!canManageRoom(room, user)) return reply.code(403).send({ error: 'not_creator' });
     if (resultPlayers.length !== PLAYER_COUNT[room.type]) {
       return reply.code(400).send({ error: 'wrong_player_count' });
     }

@@ -105,7 +105,8 @@ async function authenticate() {
 function updateTopbar() {
   if (!state.me) return;
   const m = medalEmoji(state.me.rank);
-  status.innerHTML = `${m ? m + ' ' : ''}${escape(state.me.display_name)}`;
+  const adminBadge = state.me.isAdmin ? '<span style="color:var(--gold);font-weight:700;"> 👑</span>' : '';
+  status.innerHTML = `${m ? m + ' ' : ''}${escape(state.me.display_name)}${adminBadge}`;
 }
 
 // — router —
@@ -271,6 +272,15 @@ async function renderPlayerDetail([tgId]) {
         </div>
       ` : '');
 
+  const adminPanel = (state.me?.isAdmin && !isOwner) ? `
+    <h3 class="section-title">Админ-панель</h3>
+    <div class="card">
+      <button id="admin-edit-name" class="secondary" style="width:100%;margin-bottom:6px;">✎ Сменить имя</button>
+      <button id="admin-edit-hero" class="secondary" style="width:100%;margin-bottom:6px;">⚔ Сменить героя</button>
+      <button id="admin-toggle-privacy" class="secondary" style="width:100%;margin-bottom:6px;">🔓 Сбросить приватность (всё publlic)</button>
+      <button id="admin-delete-user" class="secondary" style="width:100%;color:var(--accent);">💀 Удалить пользователя</button>
+    </div>` : '';
+
   screen.innerHTML = `
     <div class="card profile-hero">
       ${playerAvatar(user)}
@@ -283,7 +293,51 @@ async function renderPlayerDetail([tgId]) {
     ${h2hCard}
     ${heroesSection}
     ${recentSection}
+    ${adminPanel}
   `;
+
+  // Admin actions
+  if (state.me?.isAdmin && !isOwner) {
+    screen.querySelector('#admin-edit-name').onclick = async () => {
+      const v = prompt(`Новое имя для «${user.display_name}»:`, user.display_name);
+      if (!v || !v.trim()) return;
+      try {
+        await api(`/admin/user/${tgId}`, { method: 'PUT', body: JSON.stringify({ display_name: v.trim() }) });
+        renderPlayerDetail([tgId]);
+      } catch (e) { alert('Не получилось: ' + e.message); }
+    };
+    screen.querySelector('#admin-edit-hero').onclick = async () => {
+      if (!state.heroes) state.heroes = (await api('/heroes')).heroes;
+      const choice = prompt('Введи slug героя (например geralt) или 0 чтобы очистить:', '');
+      if (choice === null) return;
+      const slug = choice.trim();
+      if (!slug || slug === '0') {
+        await api(`/admin/user/${tgId}`, { method: 'PUT', body: JSON.stringify({ signature_custom: '' }) });
+      } else {
+        const hero = state.heroes.find((h) => h.slug === slug);
+        if (!hero) return alert('Slug не найден. Доступные: ' + state.heroes.slice(0, 10).map((h) => h.slug).join(', ') + ', ...');
+        await api(`/admin/user/${tgId}`, { method: 'PUT', body: JSON.stringify({ signature_hero_id: hero.id }) });
+      }
+      renderPlayerDetail([tgId]);
+    };
+    screen.querySelector('#admin-toggle-privacy').onclick = async () => {
+      try {
+        await api(`/admin/user/${tgId}`, {
+          method: 'PUT',
+          body: JSON.stringify({ privacy: { show_breakdown: true, show_heroes: true, show_recent: true } }),
+        });
+        renderPlayerDetail([tgId]);
+      } catch (e) { alert('Не получилось: ' + e.message); }
+    };
+    screen.querySelector('#admin-delete-user').onclick = async () => {
+      if (!confirm(`Точно удалить «${user.display_name}»? Если у него есть завершённые игры или турниры как у создателя — операция упадёт; сначала разруливай те.`)) return;
+      try {
+        const r = await api(`/admin/user/${tgId}/delete`, { method: 'POST' });
+        alert('Удалено. Открытых комнат удалено: ' + r.deleted_open_rooms);
+        location.hash = '#/players';
+      } catch (e) { alert('Не получилось: ' + e.message); }
+    };
+  }
 }
 
 // — profile —
@@ -376,6 +430,38 @@ async function renderProfile() {
     }
     e.target.disabled = false;
   };
+
+  // Admin "danger zone" — only visible to admin user. Server-side enforces auth.
+  if (state.me?.isAdmin) {
+    const danger = document.createElement('div');
+    danger.innerHTML = `
+      <h3 class="section-title">Админка 👑</h3>
+      <div class="card">
+        <button id="admin-wipe-stats" class="secondary" style="width:100%;margin-bottom:6px;color:var(--accent);">🧹 Сбросить всю статистику (комнаты + турниры + очки)</button>
+        <button id="admin-wipe-all" class="secondary" style="width:100%;color:var(--accent);">💀 Полный сброс (включая всех юзеров)</button>
+        <p class="muted" style="font-size:12px;margin-top:10px;line-height:1.5;">
+          Soft-сброс оставит юзеров с их сигнатурами/аватарками, обнулит только игровую историю. Hard-сброс грохнет вообще всё.
+        </p>
+      </div>
+    `;
+    screen.appendChild(danger);
+    screen.querySelector('#admin-wipe-stats').onclick = async () => {
+      if (!confirm('Сбросить всю статистику? Юзеры останутся, но очки/комнаты/турниры обнулятся.')) return;
+      try {
+        const r = await api('/admin/wipe-stats', { method: 'POST' });
+        alert('Удалено: ' + JSON.stringify(r.deleted));
+        renderProfile();
+      } catch (e) { alert('Не получилось: ' + e.message); }
+    };
+    screen.querySelector('#admin-wipe-all').onclick = async () => {
+      if (!confirm('Точно ПОЛНОСТЬЮ обнулить, включая юзеров? Тебе самому придётся /start снова после этого.')) return;
+      if (!confirm('Серьёзно? Подтверди ещё раз.')) return;
+      try {
+        const r = await api('/admin/wipe-all', { method: 'POST' });
+        alert('Готово. Перезайди в TG через /start. Удалено: ' + JSON.stringify(r.deleted));
+      } catch (e) { alert('Не получилось: ' + e.message); }
+    };
+  }
 
   // Privacy toggles auto-save on change (no save button — feels lighter)
   const wireToggle = (id, key) => {
@@ -637,7 +723,8 @@ async function renderRoomDetail(id) {
   const { room } = await api(`/rooms/${id}`);
   const me = state.me;
   const myPlayer = room.players.find((p) => p.tg_id === me.tg_id);
-  const isCreator = room.creator_tg_id === me.tg_id;
+  // Admin gets all manager-only buttons regardless of who created the room.
+  const isCreator = room.creator_tg_id === me.tg_id || me.isAdmin;
   const full = room.players.length >= room.target_count;
   const allPicked = room.players.every((p) => p.hero_id || p.hero_custom);
 
@@ -750,6 +837,10 @@ async function renderRoomDetail(id) {
   } else {
     actionsHtml += `<button id="join">Войти в комнату</button>`;
   }
+  // Admin force-delete works in any state, even if admin isn't a player.
+  if (me.isAdmin) {
+    actionsHtml += `<button id="admin-force-delete-room" class="secondary" style="color:var(--accent);">💀 Снести комнату (admin)</button>`;
+  }
   actionsHtml += '</div>';
 
   let stateText;
@@ -809,6 +900,15 @@ async function renderRoomDetail(id) {
 
   const finBtn = screen.querySelector('#finalize');
   if (finBtn) finBtn.onclick = () => { location.hash = `#/rooms/${id}/finalize`; };
+
+  const adminDelRoomBtn = screen.querySelector('#admin-force-delete-room');
+  if (adminDelRoomBtn) adminDelRoomBtn.onclick = async () => {
+    if (!confirm('АДМИН: снести эту комнату полностью? Все игры и результаты комнаты исчезнут.')) return;
+    try {
+      await api(`/admin/room/${id}/delete`, { method: 'POST' });
+      location.hash = '#/rooms';
+    } catch (e) { alert('Не получилось: ' + e.message); }
+  };
 
   const shareBtn = screen.querySelector('#share-room');
   if (shareBtn) shareBtn.onclick = () => shareRoom(id);

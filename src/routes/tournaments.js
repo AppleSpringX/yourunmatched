@@ -1,5 +1,5 @@
 import { getDb, getTopThreeRanks, transaction } from '../db.js';
-import { requireAuth } from '../auth.js';
+import { requireAuth, isAdminUser } from '../auth.js';
 import { PLAYER_COUNT } from '../scoring.js';
 
 // MVP: only 1v1 round-robin tournaments. 2v2/FFA bracket modes come later.
@@ -146,7 +146,7 @@ export async function tournamentsRoutes(app) {
     const id = Number(req.params.id);
     const t = db.prepare('SELECT * FROM tournaments WHERE id = ?').get(id);
     if (!t) return reply.code(404).send({ error: 'not_found' });
-    if (t.creator_tg_id !== user.tg_id) return reply.code(403).send({ error: 'not_creator' });
+    if (t.creator_tg_id !== user.tg_id && !isAdminUser(user)) return reply.code(403).send({ error: 'not_creator' });
     db.prepare("UPDATE tournaments SET status = 'finished' WHERE id = ?").run(id);
     return { ok: true };
   });
@@ -160,7 +160,7 @@ export async function tournamentsRoutes(app) {
     const id = Number(req.params.id);
     const t = db.prepare('SELECT * FROM tournaments WHERE id = ?').get(id);
     if (!t) return reply.code(404).send({ error: 'not_found' });
-    if (t.creator_tg_id !== user.tg_id) return reply.code(403).send({ error: 'not_creator' });
+    if (t.creator_tg_id !== user.tg_id && !isAdminUser(user)) return reply.code(403).send({ error: 'not_creator' });
 
     transaction(db, () => {
       // Open matches that were never played: just delete them outright.
