@@ -173,11 +173,26 @@ function navigate() {
     a.classList.toggle('active', a.dataset.tab === segs[0]);
   });
 
+  // Reset render-dedup signature so this fresh navigation always renders.
+  state._lastSig = null;
+  // Trigger fade-in via class — polling-driven re-renders don't add this class
+  // and therefore don't flash the animation every tick.
+  screen.classList.add('entering');
+  setTimeout(() => screen.classList.remove('entering'), 220);
+
   const handler = routes[route];
   showSpinner();
   Promise.resolve(handler(segs.slice(1))).catch((e) => {
     screen.innerHTML = `<div class="empty">Ошибка: ${escape(e.message)}</div>`;
   });
+}
+
+// Skip a re-render when the polling response is byte-identical to the last one.
+// Each polled screen calls this BEFORE building HTML; if it returns true, render is skipped.
+function shouldSkipRender(key, signature) {
+  if (state._lastSig && state._lastSig.key === key && state._lastSig.sig === signature) return true;
+  state._lastSig = { key, sig: signature };
+  return false;
 }
 
 window.addEventListener('hashchange', () => {
@@ -533,6 +548,7 @@ async function renderRooms([id, action]) {
 
 async function renderRoomsList() {
   const { rooms } = await api('/rooms');
+  if (shouldSkipRender('rooms-list', JSON.stringify(rooms))) return;
   screen.innerHTML = `
     <div class="row" style="margin-bottom:12px;">
       <button id="new-room" style="width:100%;">+ Создать комнату</button>
@@ -759,6 +775,11 @@ async function openCreateRoom() {
 async function renderRoomDetail(id) {
   stopPolling();
   const { room } = await api(`/rooms/${id}`);
+  if (shouldSkipRender(`room-${id}`, JSON.stringify(room))) {
+    // Data unchanged — restart polling so we keep checking, but don't touch DOM.
+    if (room.status === 'open') startPolling(() => renderRoomDetail(id), 4000);
+    return;
+  }
   const me = state.me;
   const myPlayer = room.players.find((p) => p.tg_id === me.tg_id);
   // Admin gets all manager-only buttons regardless of who created the room.
@@ -1630,7 +1651,12 @@ async function openCreateTournament() {
 }
 
 async function renderTournamentDetail(id) {
-  const { tournament, standings, matches } = await api(`/tournaments/${id}`);
+  const data = await api(`/tournaments/${id}`);
+  if (shouldSkipRender(`tournament-${id}`, JSON.stringify(data))) {
+    if (data.tournament.status !== 'finished') startPolling(() => renderTournamentDetail(id), 5000);
+    return;
+  }
+  const { tournament, standings, matches } = data;
   const isCreator = tournament.creator_tg_id === state.me.tg_id;
   const isFinished = tournament.status === 'finished';
   const allDone = matches.every((m) => m.status === 'finished');

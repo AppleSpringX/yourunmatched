@@ -345,8 +345,10 @@ label {
   to { opacity: 0; transform: translate(-50%, 20px); }
 }
 
-/* Subtle fade on route change so transitions don't feel instant */
-main#screen > * {
+/* Subtle fade on route change. Only fires when 'entering' class is set — added on
+   hashchange and removed after the animation. Polling-driven re-renders therefore
+   don't flash the animation every cycle. */
+main#screen.entering > * {
   animation: route-in 0.18s ease-out;
 }
 @keyframes route-in {
