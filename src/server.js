@@ -47,3 +47,23 @@ try {
   app.log.error(err);
   process.exit(1);
 }
+
+// Render free tier sleeps after 15 min of no inbound traffic. Bot is always-on
+// here on wispbyte, so we ping the public WEBAPP_URL every 14 minutes to keep
+// the proxy warm. Cheap and reliable — no external pinger needed.
+if (config.webappUrl && /^https?:\/\//.test(config.webappUrl)) {
+  const PING_INTERVAL_MS = 14 * 60 * 1000;
+  const pingUrl = config.webappUrl.replace(/\/$/, '') + '/proxy-health';
+  const ping = async () => {
+    try {
+      const res = await fetch(pingUrl, { method: 'GET' });
+      app.log.debug(`[keepalive] ${pingUrl} -> ${res.status}`);
+    } catch (err) {
+      app.log.debug(`[keepalive] ${pingUrl} failed: ${err.message}`);
+    }
+  };
+  // Fire once on boot (after a short delay to let the proxy come up too) and then on interval.
+  setTimeout(ping, 30_000);
+  setInterval(ping, PING_INTERVAL_MS);
+  app.log.info(`[keepalive] pinging ${pingUrl} every ${PING_INTERVAL_MS / 60000} min`);
+}

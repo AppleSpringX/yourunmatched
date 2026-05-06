@@ -193,16 +193,18 @@ button.secondary {
 
 .avatar {
   --size: 40px;
+  --hue: 0;
   width: var(--size);
   height: var(--size);
   border-radius: 50%;
-  background: var(--accent-soft);
+  background: hsl(var(--hue), 38%, 78%);
   background-size: cover;
   background-position: center;
   flex-shrink: 0;
   position: relative;
   border: 1px solid var(--separator);
   font-size: calc(var(--size) * 0.42);
+  overflow: hidden;
 }
 .avatar[data-letter]::before {
   content: attr(data-letter);
@@ -211,12 +213,16 @@ button.secondary {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--accent);
+  color: hsl(var(--hue), 55%, 28%);
   font-weight: 800;
   letter-spacing: 0;
   text-transform: uppercase;
   pointer-events: none;
 }
+/* Hero portrait: when /heroes/<slug>.webp exists, the image covers the letter.
+   When the file doesn't exist, browsers don't render anything for the bg-image
+   and the letter via ::before stays visible — clean fallback. */
+.avatar.avatar-portrait { background-color: hsl(var(--hue), 38%, 78%); }
 .player-name {
   font-weight: 600;
   font-size: 15px;

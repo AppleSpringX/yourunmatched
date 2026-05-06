@@ -240,7 +240,7 @@ async function renderPlayerDetail([tgId]) {
         <div class="card">
           ${heroStats.map((h) => `
             <div class="player-row">
-              ${heroAvatar(h.hero_name)}
+              ${heroAvatar(h.hero_name, undefined, h.hero_slug)}
               <div>
                 <div class="player-name">${escape(h.hero_name)}</div>
                 <div class="player-meta">${formatGamesCount(h.games)} · ${Math.round((h.wins / h.games) * 100)}% побед</div>
@@ -577,7 +577,7 @@ async function openCreateRoom() {
                   ${heroes.map((h) => `
                     <label class="pool-hero-row">
                       <input type="checkbox" data-hero-id="${h.id}" ${pool.has(h.id) ? 'checked' : ''} />
-                      ${heroAvatar(h.name)}
+                      ${heroAvatar(h.name, undefined, h.slug)}
                       <span class="hero-name">${escape(h.name)}</span>
                     </label>
                   `).join('')}
@@ -923,7 +923,7 @@ async function renderDraftRoom(room) {
     const pickerName = isPicked ? room.players.find((p) => p.tg_id === pickInfo.tg_id)?.display_name : '';
     return `
       <div class="draft-card ${cls}" data-hero-id="${h.id}">
-        ${heroAvatar(h.name)}
+        ${heroAvatar(h.name, undefined, h.slug)}
         <div style="min-width:0;">
           <div class="card-name">${escape(h.name)}</div>
           <div class="card-meta">
@@ -1094,7 +1094,7 @@ async function openHeroPicker(roomId, myPlayer) {
         const isCurrent = currentId === h.id;
         return `
           <div class="hero-row ${isCurrent ? 'selected' : ''}" data-id="${h.id}">
-            ${heroAvatar(h.name)}
+            ${heroAvatar(h.name, undefined, h.slug)}
             <div>
               <div class="hero-name">${escape(h.name)}${isCurrent ? ' <span class="muted" style="font-weight:400;font-size:11px;">· сейчас</span>' : ''}</div>
               <div class="hero-set">${escape(h.set_name)}</div>
@@ -1575,13 +1575,20 @@ function renderNotFound() {
 
 // — small helpers —
 
-// Avatar rendering: returns the full <div class="avatar"> HTML.
-// If a portrait/uploaded image exists → background-image. Otherwise → letter via CSS ::before.
-// Hero portraits don't ship yet (Phase 4), so heroes always render letter for now.
-function avatarTag({ src, letter, size }) {
+// Deterministic hash → hue, so each hero/player gets a stable colored letter avatar.
+function colorFromString(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return h % 360;
+}
+
+// Avatar rendering: returns full <div class="avatar"> HTML.
+// Priority: explicit src → background image. Otherwise → letter on hashed-color background via CSS ::before.
+function avatarTag({ src, letter, hue, size }) {
   const styleParts = [];
   if (size) styleParts.push(`--size:${size}px`);
   if (src) styleParts.push(`background-image:url(${src})`);
+  if (!src && hue !== undefined) styleParts.push(`--hue:${hue}`);
   const style = styleParts.length ? ` style="${styleParts.join(';')}"` : '';
   const dl = (!src && letter) ? ` data-letter="${escape(letter)}"` : '';
   return `<div class="avatar"${dl}${style}></div>`;
@@ -1589,13 +1596,18 @@ function avatarTag({ src, letter, size }) {
 
 function playerAvatar(user, size) {
   if (user?.avatar_file_id) return avatarTag({ src: `/api/avatar/${user.tg_id}`, size });
-  const letter = (user?.display_name || '?').slice(0, 1).toUpperCase();
-  return avatarTag({ letter, size });
+  const name = user?.display_name || '?';
+  return avatarTag({ letter: name.slice(0, 1).toUpperCase(), hue: colorFromString(name), size });
 }
 
-function heroAvatar(name, size) {
+function heroAvatar(name, size, slug) {
+  // If a portrait file exists at /heroes/<slug>.webp, the browser will use it; if 404,
+  // background-image silently fails and the letter shows through.
+  if (slug) {
+    return `<div class="avatar avatar-portrait" data-letter="${escape((name || '?').slice(0, 1).toUpperCase())}" style="${size ? `--size:${size}px;` : ''}--hue:${colorFromString(name || '?')};background-image:url(/heroes/${slug}.webp)"></div>`;
+  }
   const letter = (name || '?').slice(0, 1).toUpperCase();
-  return avatarTag({ letter, size });
+  return avatarTag({ letter, hue: colorFromString(name || '?'), size });
 }
 
 function gameTypeLabel(type) {
