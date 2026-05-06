@@ -30,22 +30,59 @@ function stopPolling() {
   }
 }
 
-// Auto-refresh helper: re-runs `fn` every `intervalMs`, but only while the user
-// is still on the same hash-route the polling was started for. Hashchange clears it.
+// Auto-refresh helper: skips fetches when the tab is hidden (battery/data),
+// stops itself once the user navigates to a different route.
 function startPolling(fn, intervalMs) {
   stopPolling();
   const expectedHash = location.hash;
   state.pollTimer = setInterval(() => {
-    if (location.hash === expectedHash) fn();
-    else stopPolling();
+    if (document.hidden) return; // don't poll in background
+    if (location.hash !== expectedHash) { stopPolling(); return; }
+    fn();
   }, intervalMs);
 }
 
+// Toast — non-blocking notification at the bottom of the screen.
+// Includes haptic feedback so success/error are felt as well as seen on mobile.
+function toast(message, type = 'info') {
+  const el = document.createElement('div');
+  el.className = 'toast ' + type;
+  el.textContent = message;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+  try {
+    if (type === 'error') tg?.HapticFeedback?.notificationOccurred?.('error');
+    else if (type === 'success') tg?.HapticFeedback?.notificationOccurred?.('success');
+  } catch {}
+}
+
+// Replace the spinner text with an actual visual.
+function showSpinner() {
+  screen.innerHTML = '<div class="spinner"></div>';
+}
+
+// Heroes are stable: cache in localStorage to skip a refetch on cold starts.
+// Background-refresh keeps it current across releases.
+const HEROES_CACHE_KEY = 'unmatched-heroes-v1';
 async function ensureHeroes() {
-  if (!state.heroes) {
-    const { heroes } = await api('/heroes');
-    state.heroes = heroes;
-  }
+  if (state.heroes) return state.heroes;
+  // 1) Try local cache for instant render
+  try {
+    const cached = JSON.parse(localStorage.getItem(HEROES_CACHE_KEY) || 'null');
+    if (Array.isArray(cached) && cached.length > 0) {
+      state.heroes = cached;
+      // refresh in background (don't await)
+      api('/heroes').then(({ heroes }) => {
+        state.heroes = heroes;
+        try { localStorage.setItem(HEROES_CACHE_KEY, JSON.stringify(heroes)); } catch {}
+      }).catch(() => {});
+      return state.heroes;
+    }
+  } catch {}
+  // 2) No cache — fetch
+  const { heroes } = await api('/heroes');
+  state.heroes = heroes;
+  try { localStorage.setItem(HEROES_CACHE_KEY, JSON.stringify(heroes)); } catch {}
   return state.heroes;
 }
 
@@ -137,7 +174,7 @@ function navigate() {
   });
 
   const handler = routes[route];
-  screen.innerHTML = '<div class="empty">Загрузка…</div>';
+  showSpinner();
   Promise.resolve(handler(segs.slice(1))).catch((e) => {
     screen.innerHTML = `<div class="empty">Ошибка: ${escape(e.message)}</div>`;
   });
@@ -304,7 +341,7 @@ async function renderPlayerDetail([tgId]) {
       try {
         await api(`/admin/user/${tgId}`, { method: 'PUT', body: JSON.stringify({ display_name: v.trim() }) });
         renderPlayerDetail([tgId]);
-      } catch (e) { alert('Не получилось: ' + e.message); }
+      } catch (e) { toast('Не получилось: ' + e.message, 'error'); }
     };
     screen.querySelector('#admin-edit-hero').onclick = async () => {
       if (!state.heroes) state.heroes = (await api('/heroes')).heroes;
@@ -315,7 +352,7 @@ async function renderPlayerDetail([tgId]) {
         await api(`/admin/user/${tgId}`, { method: 'PUT', body: JSON.stringify({ signature_custom: '' }) });
       } else {
         const hero = state.heroes.find((h) => h.slug === slug);
-        if (!hero) return alert('Slug не найден. Доступные: ' + state.heroes.slice(0, 10).map((h) => h.slug).join(', ') + ', ...');
+        if (!hero) return toast('Slug не найден', 'error');
         await api(`/admin/user/${tgId}`, { method: 'PUT', body: JSON.stringify({ signature_hero_id: hero.id }) });
       }
       renderPlayerDetail([tgId]);
@@ -327,15 +364,15 @@ async function renderPlayerDetail([tgId]) {
           body: JSON.stringify({ privacy: { show_breakdown: true, show_heroes: true, show_recent: true } }),
         });
         renderPlayerDetail([tgId]);
-      } catch (e) { alert('Не получилось: ' + e.message); }
+      } catch (e) { toast('Не получилось: ' + e.message, 'error'); }
     };
     screen.querySelector('#admin-delete-user').onclick = async () => {
       if (!confirm(`Точно удалить «${user.display_name}»? Если у него есть завершённые игры или турниры как у создателя — операция упадёт; сначала разруливай те.`)) return;
       try {
         const r = await api(`/admin/user/${tgId}/delete`, { method: 'POST' });
-        alert('Удалено. Открытых комнат удалено: ' + r.deleted_open_rooms);
+        toast('Удалено · открытых комнат снесено: ' + r.deleted_open_rooms, 'success');
         location.hash = '#/players';
-      } catch (e) { alert('Не получилось: ' + e.message); }
+      } catch (e) { toast('Не получилось: ' + e.message, 'error'); }
     };
   }
 }
@@ -426,7 +463,7 @@ async function renderProfile() {
       tg?.HapticFeedback?.notificationOccurred('success');
       renderProfile();
     } catch (err) {
-      alert('Не сохранилось: ' + err.message);
+      toast('Не сохранилось: ' + err.message, 'error');
     }
     e.target.disabled = false;
   };
@@ -449,17 +486,18 @@ async function renderProfile() {
       if (!confirm('Сбросить всю статистику? Юзеры останутся, но очки/комнаты/турниры обнулятся.')) return;
       try {
         const r = await api('/admin/wipe-stats', { method: 'POST' });
-        alert('Удалено: ' + JSON.stringify(r.deleted));
+        toast('Сброшено: ' + Object.values(r.deleted).reduce((a,b)=>a+b,0) + ' записей', 'success');
         renderProfile();
-      } catch (e) { alert('Не получилось: ' + e.message); }
+      } catch (e) { toast('Не получилось: ' + e.message, 'error'); }
     };
     screen.querySelector('#admin-wipe-all').onclick = async () => {
       if (!confirm('Точно ПОЛНОСТЬЮ обнулить, включая юзеров? Тебе самому придётся /start снова после этого.')) return;
       if (!confirm('Серьёзно? Подтверди ещё раз.')) return;
       try {
         const r = await api('/admin/wipe-all', { method: 'POST' });
-        alert('Готово. Перезайди в TG через /start. Удалено: ' + JSON.stringify(r.deleted));
-      } catch (e) { alert('Не получилось: ' + e.message); }
+        const total = Object.values(r.deleted).reduce((a, b) => a + b, 0);
+        toast(`Готово · удалено ${total} записей. Перезайди через /start`, 'success');
+      } catch (e) { toast('Не получилось: ' + e.message, 'error'); }
     };
   }
 
@@ -475,7 +513,7 @@ async function renderProfile() {
         });
         tg?.HapticFeedback?.selectionChanged?.();
       } catch (err) {
-        alert('Не сохранилось: ' + err.message);
+        toast('Не сохранилось: ' + err.message, 'error');
         e.target.checked = !e.target.checked;
       }
     });
@@ -618,7 +656,7 @@ async function openCreateRoom() {
         modal.close();
         location.hash = `#/rooms/${r.id}`;
       } catch (err) {
-        alert('Не получилось: ' + err.message);
+        toast('Не получилось: ' + err.message, 'error');
         e.target.disabled = false;
       }
     };
@@ -762,7 +800,7 @@ async function renderRoomDetail(id) {
       try {
         await api(`/rooms/${id}/reset-results`, { method: 'POST' });
         renderRoomDetail(id);
-      } catch (e) { alert('Не получилось: ' + e.message); }
+      } catch (e) { toast('Не получилось: ' + e.message, 'error'); }
     };
     return;
   }
@@ -885,7 +923,7 @@ async function renderRoomDetail(id) {
   if (joinBtn) joinBtn.onclick = async () => {
     joinBtn.disabled = true;
     try { await api(`/rooms/${id}/join`, { method: 'POST' }); renderRoomDetail(id); }
-    catch (e) { alert('Не получилось: ' + e.message); joinBtn.disabled = false; }
+    catch (e) { toast('Не получилось: ' + e.message, 'error'); joinBtn.disabled = false; }
   };
 
   const leaveBtn = screen.querySelector('#leave');
@@ -895,7 +933,7 @@ async function renderRoomDetail(id) {
       const r = await api(`/rooms/${id}/leave`, { method: 'POST' });
       if (r.deleted) location.hash = '#/rooms';
       else renderRoomDetail(id);
-    } catch (e) { alert('Не получилось: ' + e.message); }
+    } catch (e) { toast('Не получилось: ' + e.message, 'error'); }
   };
 
   const finBtn = screen.querySelector('#finalize');
@@ -907,7 +945,7 @@ async function renderRoomDetail(id) {
     try {
       await api(`/admin/room/${id}/delete`, { method: 'POST' });
       location.hash = '#/rooms';
-    } catch (e) { alert('Не получилось: ' + e.message); }
+    } catch (e) { toast('Не получилось: ' + e.message, 'error'); }
   };
 
   const shareBtn = screen.querySelector('#share-room');
@@ -921,7 +959,7 @@ async function renderRoomDetail(id) {
       tg?.HapticFeedback?.selectionChanged?.();
       renderRoomDetail(id);
     } catch (e) {
-      alert('Не получилось: ' + e.message);
+      toast('Не получилось: ' + e.message, 'error');
       randBtn.disabled = false;
     }
   };
@@ -935,7 +973,7 @@ async function renderRoomDetail(id) {
       tg?.HapticFeedback?.selectionChanged?.();
       renderRoomDetail(id);
     } catch (e) {
-      alert('Не получилось: ' + e.message);
+      toast('Не получилось: ' + e.message, 'error');
       randHeroesBtn.disabled = false;
     }
   };
@@ -948,7 +986,7 @@ async function renderRoomDetail(id) {
       await api(`/rooms/${id}/start-draft`, { method: 'POST' });
       renderRoomDetail(id);
     } catch (e) {
-      alert('Не получилось: ' + e.message);
+      toast('Не получилось: ' + e.message, 'error');
       startDraftBtn.disabled = false;
     }
   };
@@ -962,7 +1000,7 @@ async function renderRoomDetail(id) {
           body: JSON.stringify({ team: Number(btn.dataset.team) }),
         });
         renderRoomDetail(id);
-      } catch (err) { alert('Не получилось: ' + err.message); }
+      } catch (err) { toast('Не получилось: ' + err.message, 'error'); }
     };
   });
 
@@ -1092,7 +1130,7 @@ async function renderDraftRoom(room) {
     try {
       await api(`/rooms/${room.id}/cancel-draft`, { method: 'POST' });
       renderRoomDetail(room.id);
-    } catch (e) { alert('Не получилось: ' + e.message); }
+    } catch (e) { toast('Не получилось: ' + e.message, 'error'); }
   };
 
   const attachPoolTaps = () => {
@@ -1108,7 +1146,7 @@ async function renderDraftRoom(room) {
           tg?.HapticFeedback?.selectionChanged?.();
           renderRoomDetail(room.id);
         } catch (e) {
-          alert('Не получилось: ' + e.message);
+          toast('Не получилось: ' + e.message, 'error');
         }
       });
     });
@@ -1161,11 +1199,11 @@ async function openHeroPicker(roomId, myPlayer) {
       tg?.HapticFeedback?.selectionChanged?.();
       modal.close();
       renderRoomDetail(roomId);
-    } catch (e) { alert('Не получилось: ' + e.message); }
+    } catch (e) { toast('Не получилось: ' + e.message, 'error'); }
   };
 
   const saveCustom = async () => {
-    if (!custom.trim()) { alert('Впиши название колоды или выбери героя из списка'); return; }
+    if (!custom.trim()) { toast('Выбери героя или впиши свою колоду', 'error'); return; }
     try {
       await api(`/rooms/${roomId}/select-hero`, {
         method: 'POST',
@@ -1173,7 +1211,7 @@ async function openHeroPicker(roomId, myPlayer) {
       });
       modal.close();
       renderRoomDetail(roomId);
-    } catch (e) { alert('Не получилось: ' + e.message); }
+    } catch (e) { toast('Не получилось: ' + e.message, 'error'); }
   };
 
   const render = () => {
@@ -1280,7 +1318,7 @@ function finalizeShell(room, body, getResult) {
   screen.querySelector('#fin-cancel').onclick = () => { location.hash = `#/rooms/${room.id}`; };
   screen.querySelector('#fin-submit').onclick = async (e) => {
     let result;
-    try { result = getResult(); } catch (err) { alert(err.message); return; }
+    try { result = getResult(); } catch (err) { toast(err.message, 'error'); return; }
     const notes = screen.querySelector('#fin-notes').value.trim();
     e.target.disabled = true;
     try {
@@ -1291,7 +1329,7 @@ function finalizeShell(room, body, getResult) {
       tg?.HapticFeedback?.notificationOccurred('success');
       location.hash = `#/rooms/${room.id}`;
     } catch (err) {
-      alert('Не получилось: ' + (err.message || 'unknown'));
+      toast('Не получилось: ' + (err.message || 'unknown'), 'error');
       e.target.disabled = false;
     }
   };
@@ -1537,8 +1575,8 @@ async function openCreateTournament() {
     });
     modal.body.querySelector('#t-cancel').onclick = () => modal.close();
     modal.body.querySelector('#t-create').onclick = async (e) => {
-      if (!name.trim()) { alert('Впиши название'); return; }
-      if (selected.size < 3) { alert('Минимум 3 участника'); return; }
+      if (!name.trim()) { toast('Впиши название турнира', 'error'); return; }
+      if (selected.size < 3) { toast('Нужно минимум 3 участника', 'error'); return; }
       e.target.disabled = true;
       try {
         const r = await api('/tournaments', {
@@ -1553,7 +1591,7 @@ async function openCreateTournament() {
         modal.close();
         location.hash = `#/tournaments/${r.id}`;
       } catch (err) {
-        alert('Не получилось: ' + err.message);
+        toast('Не получилось: ' + err.message, 'error');
         e.target.disabled = false;
       }
     };
@@ -1622,7 +1660,7 @@ async function renderTournamentDetail(id) {
     try {
       await api(`/tournaments/${id}/finish`, { method: 'POST' });
       renderTournamentDetail(id);
-    } catch (e) { alert('Не получилось: ' + e.message); }
+    } catch (e) { toast('Не получилось: ' + e.message, 'error'); }
   };
 
   const delBtn = screen.querySelector('#t-delete');
@@ -1635,7 +1673,7 @@ async function renderTournamentDetail(id) {
       await api(`/tournaments/${id}/delete`, { method: 'POST' });
       tg?.HapticFeedback?.notificationOccurred?.('success');
       location.hash = '#/tournaments';
-    } catch (e) { alert('Не получилось: ' + e.message); }
+    } catch (e) { toast('Не получилось: ' + e.message, 'error'); }
   };
 
   // Tournaments evolve as matches finalize — keep standings fresh.
@@ -1754,7 +1792,7 @@ async function shareRoom(roomId) {
   }
   try {
     await navigator.clipboard.writeText(url);
-    alert('Ссылка скопирована:\n' + url);
+    toast('Ссылка скопирована', 'success');
   } catch {
     prompt('Скопируй ссылку:', url);
   }
