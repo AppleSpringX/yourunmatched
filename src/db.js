@@ -74,11 +74,13 @@ function ensureSchemaExtensions(db) {
   ensureColumn(db, 'users', 'show_recent', 'INTEGER NOT NULL DEFAULT 1');
 }
 
-// Top-3 by overall (sum of all points across game types).
+// Top-3 by overall (sum of all points across game types + admin adjustments).
 // Returns Map<tg_id, rank> with rank in {1, 2, 3}.
 export function getTopThreeRanks() {
   const rows = getDb().prepare(`
-    SELECT u.tg_id, COALESCE(SUM(gp.points_awarded), 0) AS overall
+    SELECT u.tg_id,
+           COALESCE(SUM(gp.points_awarded), 0)
+           + COALESCE((SELECT SUM(delta) FROM points_adjustments WHERE tg_id = u.tg_id), 0) AS overall
     FROM users u
     LEFT JOIN game_players gp ON gp.tg_id = u.tg_id
     LEFT JOIN games g ON g.id = gp.game_id AND g.status = 'finished'
@@ -161,10 +163,21 @@ function migrate(db) {
       PRIMARY KEY (tournament_id, tg_id)
     );
 
+    CREATE TABLE IF NOT EXISTS points_adjustments (
+      id INTEGER PRIMARY KEY,
+      tg_id INTEGER NOT NULL REFERENCES users(tg_id) ON DELETE CASCADE,
+      delta INTEGER NOT NULL,
+      category TEXT NOT NULL CHECK(category IN ('overall', '1v1', '2v2', 'ffa')),
+      reason TEXT,
+      by_tg_id INTEGER REFERENCES users(tg_id),
+      created_at INTEGER NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_games_type_status ON games(type, status);
     CREATE INDEX IF NOT EXISTS idx_game_players_tg ON game_players(tg_id);
     CREATE INDEX IF NOT EXISTS idx_games_tournament ON games(tournament_id);
     CREATE INDEX IF NOT EXISTS idx_tournament_players_tg ON tournament_players(tg_id);
+    CREATE INDEX IF NOT EXISTS idx_points_adj_tg ON points_adjustments(tg_id);
   `);
 }
 

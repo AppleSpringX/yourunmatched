@@ -329,6 +329,8 @@ async function renderPlayerDetail([tgId]) {
     <div class="card">
       <button id="admin-edit-name" class="secondary" style="width:100%;margin-bottom:6px;">✎ Сменить имя</button>
       <button id="admin-edit-hero" class="secondary" style="width:100%;margin-bottom:6px;">⚔ Сменить героя</button>
+      <button id="admin-adjust-points" class="secondary" style="width:100%;margin-bottom:6px;">💯 Изменить очки</button>
+      <button id="admin-show-adjustments" class="secondary" style="width:100%;margin-bottom:6px;">📜 История корректировок</button>
       <button id="admin-toggle-privacy" class="secondary" style="width:100%;margin-bottom:6px;">🔓 Сбросить приватность (всё publlic)</button>
       <button id="admin-delete-user" class="secondary" style="width:100%;color:var(--accent);">💀 Удалить пользователя</button>
     </div>` : '';
@@ -371,6 +373,62 @@ async function renderPlayerDetail([tgId]) {
         await api(`/admin/user/${tgId}`, { method: 'PUT', body: JSON.stringify({ signature_hero_id: hero.id }) });
       }
       renderPlayerDetail([tgId]);
+    };
+    screen.querySelector('#admin-adjust-points').onclick = async () => {
+      const cat = prompt(
+        `Категория для «${user.display_name}»:\n` +
+        `  overall — общий зачёт (только Overall)\n` +
+        `  1v1 — 1v1 (плюсуется в Overall)\n` +
+        `  2v2 — 2v2 (плюсуется в Overall)\n` +
+        `  ffa — FFA 3/4 (плюсуется в Overall)\n` +
+        `Введи: overall, 1v1, 2v2 или ffa`,
+        'overall',
+      );
+      if (!cat) return;
+      const category = cat.trim();
+      if (!['overall', '1v1', '2v2', 'ffa'].includes(category)) {
+        return toast('Неверная категория', 'error');
+      }
+      const deltaStr = prompt(`Сколько очков добавить (можно с минусом, например -5)?`, '');
+      if (deltaStr === null) return;
+      const delta = Number(deltaStr);
+      if (!Number.isInteger(delta) || delta === 0) {
+        return toast('Нужно целое ненулевое число', 'error');
+      }
+      const reason = prompt('Причина (необязательно):', '') || '';
+      try {
+        await api(`/admin/user/${tgId}/adjust`, {
+          method: 'POST',
+          body: JSON.stringify({ delta, category, reason: reason.trim() || null }),
+        });
+        toast(`${delta > 0 ? '+' : ''}${delta} очков (${category})`, 'success');
+        renderPlayerDetail([tgId]);
+      } catch (e) { toast('Не получилось: ' + e.message, 'error'); }
+    };
+    screen.querySelector('#admin-show-adjustments').onclick = async () => {
+      try {
+        const { adjustments } = await api(`/admin/user/${tgId}/adjustments`);
+        if (!adjustments.length) return toast('Корректировок нет', 'info');
+        const list = adjustments.map((a) => {
+          const d = new Date(a.created_at).toLocaleString();
+          const sign = a.delta > 0 ? '+' : '';
+          const reason = a.reason ? ` — ${a.reason}` : '';
+          const by = a.by_name ? ` by ${a.by_name}` : '';
+          return `#${a.id} [${d}] ${sign}${a.delta} (${a.category})${reason}${by}`;
+        }).join('\n');
+        const undoStr = prompt(
+          `Корректировки для «${user.display_name}»:\n\n${list}\n\n` +
+          `Чтобы откатить — введи ID. Чтобы выйти — Cancel.`,
+          '',
+        );
+        if (!undoStr) return;
+        const undoId = Number(undoStr.trim());
+        if (!Number.isInteger(undoId)) return toast('Неверный ID', 'error');
+        if (!confirm(`Откатить корректировку #${undoId}?`)) return;
+        await api(`/admin/adjustment/${undoId}/delete`, { method: 'POST' });
+        toast('Откачено', 'success');
+        renderPlayerDetail([tgId]);
+      } catch (e) { toast('Не получилось: ' + e.message, 'error'); }
     };
     screen.querySelector('#admin-toggle-privacy').onclick = async () => {
       try {

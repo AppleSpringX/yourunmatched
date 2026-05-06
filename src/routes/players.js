@@ -30,8 +30,22 @@ export async function playersRoutes(app) {
       LEFT JOIN game_players gp ON gp.tg_id = u.tg_id
       LEFT JOIN games g ON g.id = gp.game_id AND g.status = 'finished'
       GROUP BY u.tg_id
-      ORDER BY points DESC, games_played DESC, u.display_name ASC
     `).all();
+
+    // Fold admin adjustments. Overall tab adds all categories; mode tabs only the matching category.
+    const ADJ_CAT = { overall: null, '1v1': '1v1', '2v2': '2v2', ffa: 'ffa' };
+    const adjCat = ADJ_CAT[sort];
+    const adjRows = adjCat === null
+      ? db.prepare('SELECT tg_id, SUM(delta) AS total FROM points_adjustments GROUP BY tg_id').all()
+      : db.prepare('SELECT tg_id, SUM(delta) AS total FROM points_adjustments WHERE category = ? GROUP BY tg_id').all(adjCat);
+    const adjByTgId = new Map(adjRows.map((r) => [r.tg_id, r.total]));
+    for (const r of rows) {
+      const adj = adjByTgId.get(r.tg_id) || 0;
+      if (adj) r.points = (r.points || 0) + adj;
+    }
+    rows.sort((a, b) => (b.points - a.points)
+      || (b.games_played - a.games_played)
+      || a.display_name.localeCompare(b.display_name));
 
     const ranks = getTopThreeRanks();
     for (const r of rows) r.rank = ranks.get(r.tg_id) ?? null;
@@ -100,6 +114,19 @@ export async function playersRoutes(app) {
       JOIN games g ON g.id = gp.game_id
       WHERE gp.tg_id = ? AND g.status = 'finished'
     `).get(tgId);
+
+    // Fold per-category admin adjustments into the breakdown. Each per-category adjustment
+    // also flows into pts_overall (Overall == sum of all). 'overall'-only adjustments
+    // affect pts_overall only.
+    const adj = db.prepare(
+      'SELECT category, COALESCE(SUM(delta), 0) AS total FROM points_adjustments WHERE tg_id = ? GROUP BY category'
+    ).all(tgId);
+    for (const row of adj) {
+      totals.pts_overall = (totals.pts_overall || 0) + row.total;
+      if (row.category === '1v1') totals.pts_1v1 = (totals.pts_1v1 || 0) + row.total;
+      else if (row.category === '2v2') totals.pts_2v2 = (totals.pts_2v2 || 0) + row.total;
+      else if (row.category === 'ffa') totals.pts_ffa = (totals.pts_ffa || 0) + row.total;
+    }
 
     const heroStats = db.prepare(`
       SELECT

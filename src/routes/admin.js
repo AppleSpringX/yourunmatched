@@ -160,4 +160,52 @@ export async function adminRoutes(app) {
     db.prepare('DELETE FROM games WHERE id = ?').run(id);
     return { ok: true };
   });
+
+  // Add or subtract points for a user. Body: { delta: int, category: 'overall'|'1v1'|'2v2'|'ffa', reason?: string }
+  app.post('/user/:tg_id/adjust', async (req, reply) => {
+    if (!checkAdmin(req)) return reply.code(403).send({ error: 'forbidden' });
+    const tgId = Number(req.params.tg_id);
+    const { delta, category, reason } = req.body || {};
+    const d = Number(delta);
+    if (!Number.isInteger(d) || d === 0) return reply.code(400).send({ error: 'invalid_delta' });
+    if (!['overall', '1v1', '2v2', 'ffa'].includes(category)) return reply.code(400).send({ error: 'invalid_category' });
+    const db = getDb();
+    if (!db.prepare('SELECT tg_id FROM users WHERE tg_id = ?').get(tgId)) {
+      return reply.code(404).send({ error: 'not_found' });
+    }
+    const cookie = req.cookies?.sid ? req.unsignCookie(req.cookies.sid) : null;
+    const byTgId = cookie?.valid ? Number(cookie.value) : null;
+
+    db.prepare(`
+      INSERT INTO points_adjustments (tg_id, delta, category, reason, by_tg_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(tgId, d, category, (reason && String(reason).trim().slice(0, 200)) || null, byTgId, Date.now());
+
+    return { ok: true };
+  });
+
+  // Adjustment history for a user (admin audit log).
+  app.get('/user/:tg_id/adjustments', async (req, reply) => {
+    if (!checkAdmin(req)) return reply.code(403).send({ error: 'forbidden' });
+    const tgId = Number(req.params.tg_id);
+    const db = getDb();
+    const rows = db.prepare(`
+      SELECT pa.id, pa.delta, pa.category, pa.reason, pa.created_at,
+             u.display_name AS by_name
+      FROM points_adjustments pa
+      LEFT JOIN users u ON u.tg_id = pa.by_tg_id
+      WHERE pa.tg_id = ?
+      ORDER BY pa.created_at DESC
+    `).all(tgId);
+    return { adjustments: rows };
+  });
+
+  // Undo a single adjustment.
+  app.post('/adjustment/:id/delete', async (req, reply) => {
+    if (!checkAdmin(req)) return reply.code(403).send({ error: 'forbidden' });
+    const id = Number(req.params.id);
+    const db = getDb();
+    const r = db.prepare('DELETE FROM points_adjustments WHERE id = ?').run(id);
+    return { ok: true, deleted: r.changes };
+  });
 }
