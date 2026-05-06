@@ -870,6 +870,42 @@ main#screen > * {
 .pool-hero-row .avatar { --size: 32px; }
 .pool-hero-row .hero-name { font-size: 14px; }
 
+/* Hero picker accordion (in-room hero selection) */
+.picker-set {
+  border-bottom: 1px solid var(--separator);
+}
+.picker-set:last-child { border-bottom: 0; }
+.picker-set-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 4px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: rgba(168, 38, 46, 0.08);
+}
+.picker-set-header .chev {
+  font-size: 10px;
+  color: var(--muted);
+  width: 14px;
+  flex-shrink: 0;
+}
+.picker-set-header .name {
+  flex: 1;
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+}
+.picker-set-header .count {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.picker-set.has-current .picker-set-header .name {
+  color: var(--accent);
+}
+.picker-set .hero-row { padding-left: 18px; padding-right: 8px; }
+
 /* Privacy toggle rows in profile */
 .priv-row {
   display: flex;

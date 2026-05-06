@@ -1214,8 +1214,16 @@ async function openHeroPicker(roomId, myPlayer) {
     } catch (e) { toast('Не получилось: ' + e.message, 'error'); }
   };
 
+  // Sets currently expanded. Default: only the set of currentId hero, if any —
+  // so user lands on their existing pick visible without scrolling. Empty = all collapsed.
+  const openSets = new Set();
+  if (currentId) {
+    const cur = state.heroes.find((h) => h.id === currentId);
+    if (cur) openSets.add(cur.set_name);
+  }
+
   const render = () => {
-    const q = query.toLowerCase();
+    const q = query.toLowerCase().trim();
     const filtered = state.heroes.filter((h) =>
       !q || h.name.toLowerCase().includes(q) || h.set_name.toLowerCase().includes(q)
     );
@@ -1224,9 +1232,13 @@ async function openHeroPicker(roomId, myPlayer) {
       if (!grouped[h.set_name]) grouped[h.set_name] = [];
       grouped[h.set_name].push(h);
     }
-    const list = Object.entries(grouped).map(([set, heroes]) => `
-      <div class="hero-set-header">${escape(set)}</div>
-      ${heroes.map((h) => {
+    // While searching, force-expand all matching sets so results are visible immediately.
+    const isSearching = q.length > 0;
+
+    const list = Object.entries(grouped).map(([set, heroes]) => {
+      const isOpen = isSearching || openSets.has(set);
+      const setHasCurrent = heroes.some((h) => h.id === currentId);
+      const heroRows = isOpen ? heroes.map((h) => {
         const s = stats[h.id];
         const wr = s ? Math.round((s.wins / s.games) * 100) : null;
         const isCurrent = currentId === h.id;
@@ -1242,8 +1254,18 @@ async function openHeroPicker(roomId, myPlayer) {
             </div>
           </div>
         `;
-      }).join('')}
-    `).join('');
+      }).join('') : '';
+      return `
+        <div class="picker-set ${setHasCurrent ? 'has-current' : ''}">
+          <div class="picker-set-header" data-set="${escape(set)}">
+            <span class="chev">${isOpen ? '▼' : '▶'}</span>
+            <span class="name">${escape(set)}</span>
+            <span class="count">${heroes.length}</span>
+          </div>
+          ${heroRows}
+        </div>
+      `;
+    }).join('');
 
     modal.body.innerHTML = `
       <input class="modal-search" id="hero-search" placeholder="Поиск героя или набора…" value="${escape(query)}" />
@@ -1265,6 +1287,14 @@ async function openHeroPicker(roomId, myPlayer) {
       const newSearch = modal.body.querySelector('#hero-search');
       newSearch.focus();
       try { newSearch.setSelectionRange(sel, sel); } catch {}
+    });
+    modal.body.querySelectorAll('.picker-set-header').forEach((el) => {
+      el.addEventListener('click', () => {
+        const set = el.dataset.set;
+        if (openSets.has(set)) openSets.delete(set);
+        else openSets.add(set);
+        render();
+      });
     });
     modal.body.querySelectorAll('.hero-row').forEach((el) => {
       el.addEventListener('click', () => {
