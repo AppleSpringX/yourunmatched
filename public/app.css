@@ -219,10 +219,10 @@ button.secondary {
   text-transform: uppercase;
   pointer-events: none;
 }
-/* Hero portrait: when /heroes/<slug>.webp exists, the image covers the letter.
-   When the file doesn't exist, browsers don't render anything for the bg-image
-   and the letter via ::before stays visible — clean fallback. */
+/* Hero portrait: image is the avatar — suppress the letter overlay entirely.
+   If the image 404s (rare — git pull lag), an empty hashed-color circle is fine. */
 .avatar.avatar-portrait { background-color: hsl(var(--hue), 38%, 78%); }
+.avatar.avatar-portrait::before { display: none; }
 .player-name {
   font-weight: 600;
   font-size: 15px;
