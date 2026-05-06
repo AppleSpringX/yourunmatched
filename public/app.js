@@ -1601,13 +1601,18 @@ function playerAvatar(user, size) {
 }
 
 function heroAvatar(name, size, slug) {
-  // If a portrait file exists at /heroes/<slug>.webp, the browser will use it; if 404,
-  // background-image silently fails and the letter shows through.
-  if (slug) {
-    return `<div class="avatar avatar-portrait" data-letter="${escape((name || '?').slice(0, 1).toUpperCase())}" style="${size ? `--size:${size}px;` : ''}--hue:${colorFromString(name || '?')};background-image:url(/heroes/${slug}.webp)"></div>`;
-  }
+  // We always render the letter via ::before. When a portrait exists at /heroes/<slug>.webp,
+  // an <img> overlays it. If the file 404s, onerror removes the img and the letter remains.
+  // This way missing portraits gracefully fall back to the hashed-color letter avatar.
   const letter = (name || '?').slice(0, 1).toUpperCase();
-  return avatarTag({ letter, hue: colorFromString(name || '?'), size });
+  const hue = colorFromString(name || '?');
+  const styleParts = [`--hue:${hue}`];
+  if (size) styleParts.push(`--size:${size}px`);
+  const style = ` style="${styleParts.join(';')}"`;
+  const img = slug
+    ? `<img class="avatar-img" src="/heroes/${slug}.webp" alt="" loading="lazy" onerror="this.remove()" />`
+    : '';
+  return `<div class="avatar" data-letter="${escape(letter)}"${style}>${img}</div>`;
 }
 
 function gameTypeLabel(type) {

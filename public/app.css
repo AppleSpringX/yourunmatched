@@ -219,10 +219,17 @@ button.secondary {
   text-transform: uppercase;
   pointer-events: none;
 }
-/* Hero portrait: image is the avatar — suppress the letter overlay entirely.
-   If the image 404s (rare — git pull lag), an empty hashed-color circle is fine. */
-.avatar.avatar-portrait { background-color: hsl(var(--hue), 38%, 78%); }
-.avatar.avatar-portrait::before { display: none; }
+/* Portrait image overlays the ::before letter. If it 404s, onerror removes the
+   <img> and the letter remains visible — graceful fallback for missing portraits. */
+.avatar > img.avatar-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+  display: block;
+}
 .player-name {
   font-weight: 600;
   font-size: 15px;
