@@ -324,15 +324,19 @@ async function renderPlayerDetail([tgId]) {
         </div>
       ` : '');
 
-  const adminPanel = (state.me?.isAdmin && !isOwner) ? `
+  const adminPanel = state.me?.isAdmin ? `
     <h3 class="section-title">Админ-панель</h3>
     <div class="card">
-      <button id="admin-edit-name" class="secondary" style="width:100%;margin-bottom:6px;">✎ Сменить имя</button>
-      <button id="admin-edit-hero" class="secondary" style="width:100%;margin-bottom:6px;">⚔ Сменить героя</button>
+      ${!isOwner ? `
+        <button id="admin-edit-name" class="secondary" style="width:100%;margin-bottom:6px;">✎ Сменить имя</button>
+        <button id="admin-edit-hero" class="secondary" style="width:100%;margin-bottom:6px;">⚔ Сменить героя</button>
+      ` : ''}
       <button id="admin-adjust-points" class="secondary" style="width:100%;margin-bottom:6px;">💯 Изменить очки</button>
       <button id="admin-show-adjustments" class="secondary" style="width:100%;margin-bottom:6px;">📜 История корректировок</button>
-      <button id="admin-toggle-privacy" class="secondary" style="width:100%;margin-bottom:6px;">🔓 Сбросить приватность (всё publlic)</button>
-      <button id="admin-delete-user" class="secondary" style="width:100%;color:var(--accent);">💀 Удалить пользователя</button>
+      ${!isOwner ? `
+        <button id="admin-toggle-privacy" class="secondary" style="width:100%;margin-bottom:6px;">🔓 Сбросить приватность (всё publlic)</button>
+        <button id="admin-delete-user" class="secondary" style="width:100%;color:var(--accent);">💀 Удалить пользователя</button>
+      ` : ''}
     </div>` : '';
 
   screen.innerHTML = `
@@ -374,6 +378,10 @@ async function renderPlayerDetail([tgId]) {
       }
       renderPlayerDetail([tgId]);
     };
+  }
+
+  // Points-adjustment actions (доступны и для своего профиля)
+  if (state.me?.isAdmin) {
     screen.querySelector('#admin-adjust-points').onclick = async () => {
       const cat = prompt(
         `Категория для «${user.display_name}»:\n` +
@@ -430,6 +438,10 @@ async function renderPlayerDetail([tgId]) {
         renderPlayerDetail([tgId]);
       } catch (e) { toast('Не получилось: ' + e.message, 'error'); }
     };
+  }
+
+  // Owner-restricted admin actions (нельзя над собой)
+  if (state.me?.isAdmin && !isOwner) {
     screen.querySelector('#admin-toggle-privacy').onclick = async () => {
       try {
         await api(`/admin/user/${tgId}`, {
